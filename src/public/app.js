@@ -340,31 +340,34 @@ function buildRow(r) {
   addrTd.textContent = r.address || '—';
   addrTd.style.maxWidth = '220px';
 
-  // Images
+  // Images — clickable thumbnails
   const imgTd = document.createElement('td');
   const strip = document.createElement('div');
   strip.className = 'thumb-strip';
   const MAX_THUMBS = 5;
   const imgs = r.images || [];
-  imgs.slice(0, MAX_THUMBS).forEach((url) => {
+  imgs.slice(0, MAX_THUMBS).forEach((url, idx) => {
     const img = document.createElement('img');
     img.src = url;
     img.alt = '';
     img.loading = 'lazy';
     img.onerror = () => { img.style.display = 'none'; };
+    img.addEventListener('click', () => openImageModal(r, url));
     strip.appendChild(img);
   });
   if (imgs.length > MAX_THUMBS) {
     const more = document.createElement('div');
     more.className = 'thumb-more';
     more.textContent = `+${imgs.length - MAX_THUMBS}`;
+    more.style.cursor = 'pointer';
+    more.addEventListener('click', () => openImageModal(r, imgs[MAX_THUMBS]));
     strip.appendChild(more);
   }
   if (imgs.length === 0) strip.innerHTML = '<span style="color:var(--muted);font-size:.75rem">none</span>';
   imgTd.appendChild(strip);
   imgTd.innerHTML += `<div style="font-size:.7rem;color:var(--muted);margin-top:4px">${imgs.length} image${imgs.length !== 1 ? 's' : ''}</div>`;
 
-  // Recognized objects
+  // Recognized objects — clickable tags
   const objTd = document.createElement('td');
   const objects = r.allRecognizedObjects
     ? r.allRecognizedObjects.split(', ').filter(Boolean)
@@ -375,8 +378,9 @@ function buildRow(r) {
     tagList.className = 'tag-list';
     objects.slice(0, MAX_TAGS).forEach((obj) => {
       const tag = document.createElement('span');
-      tag.className = 'tag';
+      tag.className = 'tag clickable';
       tag.textContent = obj;
+      tag.addEventListener('click', () => openObjectModal(r, obj));
       tagList.appendChild(tag);
     });
     if (objects.length > MAX_TAGS) {
@@ -430,3 +434,114 @@ exportBtn.addEventListener('click', () => {
   a.click();
   URL.revokeObjectURL(url);
 });
+
+// ── Image Detail Modal ────────────────────────────────────────────────────
+const imageModal    = $('imageModal');
+const modalClose    = $('modalClose');
+const modalImageWrap = $('modalImageWrap');
+const modalNav      = $('modalNav');
+const modalTags     = $('modalTags');
+const modalObjSection = $('modalObjectsSection');
+const modalError    = $('modalError');
+
+// Close modal handlers
+modalClose.addEventListener('click', closeModal);
+imageModal.addEventListener('click', (e) => {
+  if (e.target === imageModal) closeModal();
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && imageModal.classList.contains('open')) closeModal();
+});
+
+function closeModal() {
+  imageModal.classList.remove('open');
+}
+
+/**
+ * Find the describedImages entry for a given image URL within a listing result.
+ */
+function findDescribed(listing, imageUrl) {
+  return (listing.describedImages || []).find((d) => d.path === imageUrl);
+}
+
+/**
+ * Open the modal showing a specific image and its AI-detected objects.
+ * Also renders a thumbnail nav strip for all images in the listing.
+ */
+function openImageModal(listing, activeImageUrl, highlightObj) {
+  const images = listing.images || [];
+  if (!images.length) return;
+
+  // Render full-size image
+  renderModalImage(activeImageUrl);
+
+  // Render thumbnail nav
+  modalNav.innerHTML = '';
+  images.forEach((url) => {
+    const thumb = document.createElement('img');
+    thumb.className = 'modal-nav-thumb' + (url === activeImageUrl ? ' active' : '');
+    thumb.src = url;
+    thumb.alt = '';
+    thumb.addEventListener('click', () => openImageModal(listing, url, highlightObj));
+    modalNav.appendChild(thumb);
+  });
+
+  // Render detected objects for this image
+  const described = findDescribed(listing, activeImageUrl);
+  renderModalObjects(described, highlightObj);
+
+  imageModal.classList.add('open');
+}
+
+/**
+ * Open the modal focused on a recognized object — finds the first image containing
+ * that object, shows it, and highlights the tag.
+ */
+function openObjectModal(listing, objectName) {
+  const described = (listing.describedImages || []).find(
+    (d) => d.objects && d.objects.includes(objectName)
+  );
+  const imageUrl = described ? described.path : (listing.images || [])[0];
+  if (!imageUrl) return;
+  openImageModal(listing, imageUrl, objectName);
+}
+
+function renderModalImage(url) {
+  modalImageWrap.innerHTML = `<img src="${esc(url)}" alt="Estate sale image" />`;
+}
+
+function renderModalObjects(described, highlightObj) {
+  modalTags.innerHTML = '';
+  modalError.style.display = 'none';
+
+  if (!described) {
+    modalObjSection.style.display = 'none';
+    modalError.style.display = 'block';
+    modalError.textContent = 'No AI analysis available for this image.';
+    return;
+  }
+
+  if (described.error) {
+    modalObjSection.style.display = 'none';
+    modalError.style.display = 'block';
+    modalError.textContent = `AI error: ${described.error}`;
+    return;
+  }
+
+  const objs = described.objects || [];
+  if (!objs.length) {
+    modalObjSection.style.display = 'none';
+    modalError.style.display = 'block';
+    modalError.textContent = 'No objects were identified in this image.';
+    return;
+  }
+
+  modalObjSection.style.display = '';
+  modalError.style.display = 'none';
+  objs.forEach((obj) => {
+    const tag = document.createElement('span');
+    tag.className = 'modal-tag' + (highlightObj && obj === highlightObj ? ' highlight' : '');
+    tag.textContent = obj;
+    modalTags.appendChild(tag);
+  });
+}

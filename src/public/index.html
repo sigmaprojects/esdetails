@@ -310,6 +310,125 @@
     .badge-green { background: #dcfce7; color: #15803d; }
     .badge-red   { background: #fee2e2; color: #b91c1c; }
 
+    /* ── Image Detail Modal ── */
+    .modal-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,.55);
+      z-index: 1000;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    .modal-overlay.open { display: flex; }
+    .modal-box {
+      background: var(--surface);
+      border-radius: 10px;
+      box-shadow: 0 8px 40px rgba(0,0,0,.25);
+      max-width: 820px;
+      width: 100%;
+      max-height: 90vh;
+      overflow-y: auto;
+      position: relative;
+    }
+    .modal-close {
+      position: absolute;
+      top: 10px;
+      right: 14px;
+      border: none;
+      background: none;
+      font-size: 1.5rem;
+      cursor: pointer;
+      color: var(--muted);
+      line-height: 1;
+      z-index: 2;
+    }
+    .modal-close:hover { color: var(--text); }
+    .modal-body {
+      padding: 24px;
+    }
+    .modal-image-wrap {
+      text-align: center;
+      margin-bottom: 16px;
+      background: #f0f0f0;
+      border-radius: 6px;
+      overflow: hidden;
+    }
+    .modal-image-wrap img {
+      max-width: 100%;
+      max-height: 50vh;
+      object-fit: contain;
+      display: block;
+      margin: 0 auto;
+    }
+    .modal-section-title {
+      font-size: .82rem;
+      font-weight: 600;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: .04em;
+      margin-bottom: 8px;
+    }
+    .modal-tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 5px;
+      margin-bottom: 16px;
+    }
+    .modal-tag {
+      background: #eff6ff;
+      color: var(--primary);
+      border: 1px solid #bfdbfe;
+      border-radius: 99px;
+      padding: 3px 10px;
+      font-size: .8rem;
+    }
+    .modal-tag.highlight {
+      background: var(--primary);
+      color: #fff;
+      border-color: var(--primary);
+    }
+    .modal-error {
+      color: var(--danger);
+      font-size: .85rem;
+      font-style: italic;
+    }
+    .modal-nav {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+    .modal-nav-thumb {
+      width: 56px;
+      height: 44px;
+      object-fit: cover;
+      border-radius: 4px;
+      border: 2px solid transparent;
+      cursor: pointer;
+      opacity: .6;
+      transition: opacity .15s, border-color .15s;
+    }
+    .modal-nav-thumb:hover { opacity: .85; }
+    .modal-nav-thumb.active {
+      border-color: var(--primary);
+      opacity: 1;
+    }
+    .thumb-strip img {
+      cursor: pointer;
+      transition: transform .15s;
+    }
+    .thumb-strip img:hover { transform: scale(1.08); }
+    .tag.clickable {
+      cursor: pointer;
+      transition: background .15s;
+    }
+    .tag.clickable:hover {
+      background: var(--primary);
+      color: #fff;
+      border-color: var(--primary);
+    }
+
     /* hidden helper */
     .hidden { display: none !important; }
 
@@ -459,6 +578,22 @@
   </div>
 
 </div><!-- /container -->
+
+<!-- ── Image Detail Modal ── -->
+<div class="modal-overlay" id="imageModal">
+  <div class="modal-box">
+    <button class="modal-close" id="modalClose">&times;</button>
+    <div class="modal-body">
+      <div class="modal-image-wrap" id="modalImageWrap"></div>
+      <div class="modal-nav" id="modalNav"></div>
+      <div id="modalObjectsSection">
+        <div class="modal-section-title">Recognized Objects</div>
+        <div class="modal-tags" id="modalTags"></div>
+      </div>
+      <div id="modalError" class="modal-error" style="display:none"></div>
+    </div>
+  </div>
+</div>
 
 <script src="app.js"></script>
 </body>
