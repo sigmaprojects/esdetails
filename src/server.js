@@ -45,8 +45,7 @@ setInterval(() => {
 // ── Start scan ─────────────────────────────────────────────────────────────
 app.post('/api/start-scan', (req, res) => {
   const {
-    searchableAreaUrl,
-    filterPrefix,
+    zipCode,
     searchDistance,
     imageDomain,
     ollamaUrl,
@@ -59,12 +58,12 @@ app.post('/api/start-scan', (req, res) => {
     aiPrompt,
   } = req.body;
 
-  if (!searchableAreaUrl?.trim() || !filterPrefix?.trim()) {
-    return res.status(400).json({ error: 'searchableAreaUrl and filterPrefix are required' });
+  if (!zipCode?.trim() || !/^\d{5}$/.test(zipCode.trim())) {
+    return res.status(400).json({ error: 'A valid 5-digit zip code is required' });
   }
 
-  // Basic URL validation – reject non-http schemes to prevent SSRF
-  for (const urlField of [searchableAreaUrl, filterPrefix, ollamaUrl].filter(Boolean)) {
+  // Basic URL validation for AI endpoint
+  for (const urlField of [ollamaUrl].filter(Boolean)) {
     try {
       const parsed = new URL(urlField);
       if (!['http:', 'https:'].includes(parsed.protocol)) {
@@ -90,8 +89,8 @@ app.post('/api/start-scan', (req, res) => {
   jobs.set(jobId, job);
 
   console.log(`\n=== NEW SCAN REQUEST [JOB: ${jobId}] ===`);
-  console.log(`Area:   ${searchableAreaUrl}`);
-  console.log(`Prefix: ${filterPrefix}`);
+  console.log(`Zip:    ${zipCode}`);
+  console.log(`Dist:   ${searchDistance || 10} miles`);
   console.log(`Domain: ${imageDomain || 'Any'}`);
   console.log(`AI:     ${ollamaUrl ? `${apiType} (${ollamaModel}) @ ${ollamaUrl}` : 'Disabled'}`);
 
@@ -105,7 +104,7 @@ app.post('/api/start-scan', (req, res) => {
 
   // Fire-and-forget async scan
   runScan(
-    { searchableAreaUrl, filterPrefix, searchDistance, imageDomain, ollamaUrl, ollamaModel, apiType, apiKey, maxImages, imageScale, aiConcurrency, aiPrompt },
+    { zipCode, searchDistance, imageDomain, ollamaUrl, ollamaModel, apiType, apiKey, maxImages, imageScale, aiConcurrency, aiPrompt },
     emitter
   )
     .then((results) => {
@@ -210,7 +209,7 @@ app.get('/api/progress/:jobId', (req, res) => {
 
 // ── Core scan pipeline ─────────────────────────────────────────────────────
 async function runScan(
-  { searchableAreaUrl, filterPrefix, searchDistance, imageDomain, ollamaUrl, ollamaModel, apiType, apiKey, maxImages, imageScale, aiConcurrency, aiPrompt },
+  { zipCode, searchDistance, imageDomain, ollamaUrl, ollamaModel, apiType, apiKey, maxImages, imageScale, aiConcurrency, aiPrompt },
   emitter
 ) {
   const emit = (data) => emitter.emit('progress', data);
@@ -218,7 +217,7 @@ async function runScan(
   // Phase 1 – find listing URLs
   emit({ type: 'phase', phase: 'finding_listings', message: 'Finding estate sale listings…' });
 
-  const listingUrls = await findListings(searchableAreaUrl, filterPrefix, searchDistance, (d) =>
+  const listingUrls = await findListings(zipCode, searchDistance, (d) =>
     emit({ type: 'finding_listings', ...d })
   );
 

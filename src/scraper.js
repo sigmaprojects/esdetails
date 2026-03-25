@@ -114,27 +114,56 @@ function extractFromNextData(data, allowedDomain) {
 }
 
 /**
- * Navigate to the SearchableArea URL and return all listing hrefs
- * that begin with filterPrefix.
+ * Search estatesales.net by zip code and return all listing hrefs.
  */
-export async function findListings(searchableAreaUrl, filterPrefix, searchDistance, progressCallback) {
+export async function findListings(zipCode, searchDistance, progressCallback) {
   const browser = await chromium.launch({
     headless: true,
     args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
   });
 
   try {
-    progressCallback?.({ message: 'Opening search area page…' });
+    progressCallback?.({ message: 'Opening estatesales.net…' });
     const page = await browser.newPage();
     await page.setExtraHTTPHeaders({
       'User-Agent':
         'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
     });
 
-    await page.goto(searchableAreaUrl, { waitUntil: 'networkidle', timeout: 45000 });
-    progressCallback?.({ message: 'Page loaded, configuring search filters…' });
+    // Navigate to estatesales.net homepage
+    await page.goto('https://www.estatesales.net/', { waitUntil: 'networkidle', timeout: 45000 });
+    progressCallback?.({ message: `Entering zip code ${zipCode}…` });
 
-    // --- Configure estatesales.net search form ---
+    // Type the zip code into the search field and submit
+    const searchInput = await page.waitForSelector('input[type="search"]', { timeout: 10000 });
+    await searchInput.click({ clickCount: 3 });
+    await searchInput.fill(zipCode);
+    await sleep(1000);
+
+    // Submit the search and wait for navigation to the results page
+    await Promise.all([
+      page.waitForURL(/estatesales\.net\/[A-Z]{2}\//, { timeout: 30000 }),
+      searchInput.press('Enter'),
+    ]);
+    await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
+
+    // The URL should now be like https://www.estatesales.net/CA/Rowland-Heights/91748
+    const currentUrl = page.url();
+    progressCallback?.({ message: `Search resolved to: ${currentUrl}` });
+
+    // Derive filter prefix from the state portion of the URL (e.g. https://www.estatesales.net/CA/)
+    let filterPrefix = 'https://www.estatesales.net/';
+    try {
+      const u = new URL(currentUrl);
+      const parts = u.pathname.split('/').filter(Boolean);
+      if (parts.length >= 1 && /^[A-Z]{2}$/i.test(parts[0])) {
+        filterPrefix = `${u.origin}/${parts[0]}/`;
+      }
+    } catch { /* use default */ }
+
+    progressCallback?.({ message: 'Configuring search filters…' });
+
+    // Configure distance and sale type filters
     await configureSearchForm(page, searchDistance || 10, progressCallback);
 
     progressCallback?.({ message: 'Collecting listing links…' });

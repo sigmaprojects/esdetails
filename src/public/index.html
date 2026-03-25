@@ -509,27 +509,18 @@
   <div class="card" id="configCard">
     <h2>Configuration</h2>
     <form id="scanForm">
-      <div class="form-row">
+      <div class="form-row two-col">
         <div>
-          <label for="searchableArea">
-            Search Area URL
-            <small>The browse/search page you want to scan, e.g. https://www.estatesales.net/CA/Rowland-Heights/91748</small>
+          <label for="zipCode">
+            Zip Code
+            <small>Enter a zip code to search for nearby estate sales</small>
           </label>
-          <input type="url" id="searchableArea" placeholder="https://www.estatesales.net/CA/Rowland-Heights/91748" required />
-        </div>
-      </div>
-      <div class="form-row two-col" style="margin-top:12px">
-        <div>
-          <label for="filterPrefix">
-            Listing URL Prefix
-            <small>Only links starting with this string will be treated as estate-sale listings</small>
-          </label>
-          <input type="url" id="filterPrefix" placeholder="https://www.estatesales.net/CA/" required />
+          <input type="text" id="zipCode" placeholder="91748" pattern="\d{5}" maxlength="5" required />
         </div>
         <div>
           <label for="searchDistance">
             Search Distance (miles)
-            <small>Radius around the search area</small>
+            <small>Radius around the zip code</small>
           </label>
           <input type="number" id="searchDistance" value="10" min="1" max="200" />
         </div>

@@ -3,8 +3,7 @@
 // ── Cached DOM refs ──────────────────────────────────────────────────────
 const $ = (id) => document.getElementById(id);
 
-const searchableAreaInput = $('searchableArea');
-const filterPrefixInput   = $('filterPrefix');
+const zipCodeInput        = $('zipCode');
 const apiTypeSelect       = $('apiType');
 const ollamaUrlInput      = $('ollamaUrl');
 const ollamaModelInput    = $('ollamaModel');
@@ -36,26 +35,6 @@ let currentPhase   = 0;  // 1, 2, or 3
 let phaseProgress  = { 2: { cur: 0, tot: 0 }, 3: { cur: 0, tot: 0 } };
 let expandedUrl    = null;  // track which listing row is expanded
 
-// ── Auto-populate filter prefix from search area URL ────────────────────
-searchableAreaInput.addEventListener('input', () => {
-  if (filterPrefixInput.dataset.userEdited) return;
-  const val = searchableAreaInput.value.trim();
-  if (!val) return;
-  try {
-    const u = new URL(val);
-    const parts = u.pathname.split('/').filter(Boolean);
-    filterPrefixInput.value = parts.length
-      ? `${u.origin}/${parts[0]}/`
-      : u.origin + '/';
-  } catch {
-    // ignore parse error while typing
-  }
-});
-
-filterPrefixInput.addEventListener('input', () => {
-  filterPrefixInput.dataset.userEdited = '1';
-});
-
 // Show/hide API key field based on API type
 apiTypeSelect.addEventListener('change', () => {
   apiKeyRow.classList.toggle('hidden', apiTypeSelect.value !== 'openai');
@@ -67,8 +46,7 @@ $('scanForm').addEventListener('submit', async (e) => {
   formError.textContent = '';
 
   const payload = {
-    searchableAreaUrl: searchableAreaInput.value.trim(),
-    filterPrefix:      filterPrefixInput.value.trim(),
+    zipCode:           zipCodeInput.value.trim(),
     searchDistance:    parseInt(searchDistanceInput.value, 10) || 10,
     ollamaUrl:         ollamaUrlInput.value.trim() || undefined,
     ollamaModel:       ollamaModelInput.value.trim() || 'llava-llama3:8b',
@@ -81,8 +59,8 @@ $('scanForm').addEventListener('submit', async (e) => {
     aiPrompt:          aiPromptInput.value.trim() || undefined,
   };
 
-  if (!payload.searchableAreaUrl || !payload.filterPrefix) {
-    formError.textContent = 'Both URL fields are required.';
+  if (!payload.zipCode) {
+    formError.textContent = 'Zip code is required.';
     return;
   }
 
