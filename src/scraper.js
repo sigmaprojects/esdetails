@@ -1,0 +1,388 @@
+import { chromium } from 'playwright';
+
+const DELAY_MS = 1200;
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/** Returns true for URLs that look like real gallery photos (not icons/logos). */
+function isGalleryImage(url, allowedDomain) {
+  if (!url || typeof url !== 'string') return false;
+  if (!/\.(jpg|jpeg|png|webp|gif)/i.test(url)) return false;
+  if (/icon|logo|favicon|sprite|avatar|badge|banner|placeholder|pixel|blank|default/i.test(url)) return false;
+  
+  // Specific filter for estatesales.net thumbnails vs full-sized images
+  // They use /1-1/ for full/large, /1-2/ for medium thumbnails, /1-3/ etc. for smaller
+  if (url.includes('picturescdn.estatesales.net') && /\/1-[2-9]\//.test(url)) {
+    return false;
+  }
+
+  if (allowedDomain && !url.includes(allowedDomain)) return false;
+  return true;
+}
+
+/** Recursively walk any JSON value and collect image URLs into a Set. */
+function collectImageUrls(obj, allowedDomain, urls = new Set(), depth = 0) {
+  if (depth > 25) return urls;
+  if (typeof obj === 'string') {
+    if (/^https?:\/\/.+\.(jpg|jpeg|png|webp|gif)/i.test(obj) && isGalleryImage(obj, allowedDomain)) {
+      urls.add(obj);
+    }
+  } else if (Array.isArray(obj)) {
+    for (const item of obj) collectImageUrls(item, allowedDomain, urls, depth + 1);
+  } else if (obj && typeof obj === 'object') {
+    for (const val of Object.values(obj)) collectImageUrls(val, allowedDomain, urls, depth + 1);
+  }
+  return urls;
+}
+
+/** Try to derive a full-size URL from a thumbnail URL by common patterns. */
+function toFullSizeUrl(url) {
+  // Pattern: URL contains /thumb/ → remove it
+  if (/\/thumb\//i.test(url)) return url.replace(/\/thumb\//i, '/');
+  // Pattern: size suffix like _300x200 or -thumb
+  const cleaned = url.replace(/_\d+x\d+/i, '').replace(/-thumb/i, '');
+  if (cleaned !== url) return cleaned;
+  // Pattern: query params for resize
+  try {
+    const u = new URL(url);
+    u.searchParams.delete('w');
+    u.searchParams.delete('h');
+    u.searchParams.delete('width');
+    u.searchParams.delete('height');
+    u.searchParams.delete('fit');
+    u.searchParams.delete('resize');
+    return u.toString();
+  } catch {
+    return url;
+  }
+}
+
+/** Extract structured data from Next.js __NEXT_DATA__ JSON. */
+function extractFromNextData(data, allowedDomain) {
+  const result = { title: '', dates: '', address: '', images: [] };
+  const props = data?.props?.pageProps;
+  if (!props) return result;
+
+  // Candidates for the listing object
+  const candidates = [
+    props.listing,
+    props.sale,
+    props.estatesale,
+    props.saleDetails,
+    props.pageData,
+    props.data,
+    props,
+  ].filter(Boolean);
+
+  for (const d of candidates) {
+    if (!result.title) {
+      result.title = d.title || d.name || d.companyName || d.saleTitle || d.heading || '';
+    }
+    if (!result.address) {
+      if (typeof d.address === 'string') {
+        result.address = d.address;
+      } else if (d.address && typeof d.address === 'object') {
+        result.address = [
+          d.address.street || d.address.streetAddress,
+          d.address.city,
+          d.address.state || d.address.region,
+          d.address.zip || d.address.postalCode,
+        ]
+          .filter(Boolean)
+          .join(', ');
+      } else if (d.streetAddress) {
+        result.address = [d.streetAddress, d.city, d.state].filter(Boolean).join(', ');
+      }
+    }
+    if (!result.dates) {
+      if (Array.isArray(d.dates)) {
+        result.dates = d.dates.join(', ');
+      } else if (d.dates) {
+        result.dates = String(d.dates);
+      } else if (d.startDate) {
+        result.dates = d.endDate ? `${d.startDate} – ${d.endDate}` : String(d.startDate);
+      } else if (d.saleDate) {
+        result.dates = String(d.saleDate);
+      }
+    }
+  }
+
+  // Collect all image URLs anywhere in the Next.js data
+  const imageUrls = collectImageUrls(props, allowedDomain);
+  result.images = [...imageUrls];
+
+  return result;
+}
+
+/**
+ * Navigate to the SearchableArea URL and return all listing hrefs
+ * that begin with filterPrefix.
+ */
+export async function findListings(searchableAreaUrl, filterPrefix, progressCallback) {
+  const browser = await chromium.launch({
+    headless: true,
+    args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
+  });
+
+  try {
+    progressCallback?.({ message: 'Opening search area page…' });
+    const page = await browser.newPage();
+    await page.setExtraHTTPHeaders({
+      'User-Agent':
+        'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+    });
+
+    await page.goto(searchableAreaUrl, { waitUntil: 'networkidle', timeout: 45000 });
+    progressCallback?.({ message: 'Page loaded, collecting listing links…' });
+
+    const links = await page.evaluate((prefix) => {
+      return [
+        ...new Set(
+          [...document.querySelectorAll('a[href]')]
+            .map((a) => a.href)
+            .filter((href) => href.startsWith(prefix) && href.length > prefix.length)
+        ),
+      ];
+    }, filterPrefix);
+
+    progressCallback?.({ message: `Found ${links.length} listing links`, count: links.length });
+    return links;
+  } finally {
+    await browser.close();
+  }
+}
+
+/**
+ * Scrape each listing URL for title, dates, address, and images.
+ * Returns an array of listing objects.
+ */
+export async function scrapeListings(listingUrls, imageDomain, progressCallback) {
+  const browser = await chromium.launch({
+    headless: true,
+    args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
+  });
+
+  const results = [];
+
+  try {
+    for (let i = 0; i < listingUrls.length; i++) {
+      const url = listingUrls[i];
+      progressCallback?.({
+        current: i + 1,
+        total: listingUrls.length,
+        url,
+        message: `Scraping listing ${i + 1}/${listingUrls.length}`,
+      });
+
+      try {
+        const listing = await scrapeListing(browser, url, imageDomain);
+        results.push(listing);
+        progressCallback?.({
+          type: 'listing_scraped',
+          listing
+        });
+      } catch (err) {
+        const errorListing = {
+          url,
+          title: '(error)',
+          dates: '',
+          address: '',
+          images: [],
+          error: err.message,
+        };
+        results.push(errorListing);
+        progressCallback?.({
+          type: 'listing_scraped',
+          listing: errorListing
+        });
+      }
+
+      if (i < listingUrls.length - 1) await sleep(DELAY_MS);
+    }
+  } finally {
+    await browser.close();
+  }
+
+  return results;
+}
+
+async function scrapeListing(browser, url, imageDomain) {
+  const page = await browser.newPage();
+  const networkImages = new Set();
+
+  try {
+    await page.setExtraHTTPHeaders({
+      'User-Agent':
+        'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+    });
+
+    // Intercept responses to capture large (full-size) images
+    page.on('response', async (response) => {
+      try {
+        const resUrl = response.url();
+        const ct = response.headers()['content-type'] || '';
+        const cl = parseInt(response.headers()['content-length'] || '0', 10);
+        if (ct.startsWith('image/') && cl > 25000 && isGalleryImage(resUrl, imageDomain)) {
+          networkImages.add(resUrl);
+        }
+      } catch {
+        // ignore response listener errors
+      }
+    });
+
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 40000 });
+    // Best-effort wait for JS gallery to hydrate
+    await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
+
+    let title = '';
+    let dates = '';
+    let address = '';
+    let images = [];
+
+    // --- Strategy 1: Next.js __NEXT_DATA__ (most reliable) ---
+    const nextDataText = await page
+      .$eval('#__NEXT_DATA__', (el) => el.textContent)
+      .catch(() => null);
+    if (nextDataText) {
+      try {
+        const extracted = extractFromNextData(JSON.parse(nextDataText), imageDomain);
+        title = extracted.title;
+        dates = extracted.dates;
+        address = extracted.address;
+        images = extracted.images;
+      } catch {
+        // fall through
+      }
+    }
+
+    // --- Strategy 2: JSON-LD structured data ---
+    if (!title || !address) {
+      const ldTexts = await page.$$eval('script[type="application/ld+json"]', (els) =>
+        els.map((el) => el.textContent)
+      );
+      for (const ldText of ldTexts) {
+        try {
+          const ld = JSON.parse(ldText);
+          if (!title) title = ld.name || '';
+          if (!address && ld.address) {
+            address = [
+              ld.address.streetAddress,
+              ld.address.addressLocality,
+              ld.address.addressRegion,
+            ]
+              .filter(Boolean)
+              .join(', ');
+          }
+          if (!dates && ld.startDate) {
+            dates = ld.endDate
+              ? `${ld.startDate} – ${ld.endDate}`
+              : String(ld.startDate);
+          }
+        } catch {
+          // ignore malformed LD+JSON
+        }
+      }
+    }
+
+    // --- Strategy 3: DOM fallback for title / address / dates ---
+    if (!title) {
+      title = await page
+        .$eval('h1', (el) => el.innerText.trim())
+        .catch(() => '');
+    }
+    if (!address) {
+      address = await page
+        .$eval(
+          '[class*="address" i], [itemprop="streetAddress"], [class*="Address" i], [class*="location" i]',
+          (el) => el.innerText.trim()
+        )
+        .catch(() => '');
+    }
+    if (!dates) {
+      dates = await page
+        .$eval(
+          '[class*="date" i], [class*="Date" i], time, [class*="schedule" i]',
+          (el) => el.innerText.trim()
+        )
+        .catch(() => '');
+    }
+
+    // --- Strategy 4: collect img[src] from DOM if no images yet ---
+    if (images.length === 0) {
+      const domImgs = await page.evaluate(() =>
+        [...document.querySelectorAll('img')]
+          .flatMap((img) => [
+            img.src,
+            img.getAttribute('data-src'),
+            img.getAttribute('data-full'),
+            img.getAttribute('data-original'),
+          ])
+          .filter(Boolean)
+      );
+      images = domImgs.filter((img) => isGalleryImage(img, imageDomain));
+    }
+
+    // --- Strategy 5: try clicking thumbnails for full-size modal images ---
+    if (images.length < 3) {
+      const galleryImages = await clickThroughGallery(page, imageDomain);
+      if (galleryImages.length > images.length) images = galleryImages;
+    }
+
+    // Attempt to resolve any thumbnail URLs to full-size
+    images = images.map(toFullSizeUrl);
+
+    // Merge network-captured images (deduplicated)
+    const allImages = [...new Set([...images, ...networkImages])].filter((img) => isGalleryImage(img, imageDomain));
+
+    console.log(`[Scraper] Extracted details for: ${url}`);
+    console.log(`  -> Title:  "${title}"`);
+    console.log(`  -> Images: ${allImages.length}`);
+
+    return { url, title, dates, address, images: allImages };
+  } finally {
+    await page.close();
+  }
+}
+
+async function clickThroughGallery(page, imageDomain) {
+  const collected = new Set();
+
+  const thumbSelectors = [
+    '[class*="gallery" i] img',
+    '[class*="photos" i] img',
+    '[class*="carousel" i] img',
+    '[class*="slideshow" i] img',
+    '[class*="thumbnail" i]',
+    '[class*="thumb" i] img',
+  ];
+
+  let thumbs = [];
+  for (const sel of thumbSelectors) {
+    thumbs = await page.$$(sel);
+    if (thumbs.length > 0) break;
+  }
+
+  for (const thumb of thumbs.slice(0, 40)) {
+    try {
+      await thumb.click({ timeout: 3000 });
+      await sleep(600);
+
+      // Capture the full-size image displayed in any modal/lightbox
+      const fullImg = await page
+        .$eval(
+          '[class*="modal" i] img[src], [class*="lightbox" i] img[src], [class*="overlay" i] img[src], [role="dialog"] img[src], .middle-image-container img[src]',
+          (el) => el.src
+        )
+        .catch(() => null);
+
+      if (fullImg && isGalleryImage(fullImg, imageDomain)) collected.add(fullImg);
+
+      // Close modal
+      await page.keyboard.press('Escape');
+      await sleep(300);
+    } catch {
+      // Ignore failures for individual thumbnails
+    }
+  }
+
+  return [...collected];
+}

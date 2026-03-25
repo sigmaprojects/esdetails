@@ -1,0 +1,465 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Estate Sale Scanner</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #f5f5f0;
+      --surface: #ffffff;
+      --border: #ddd;
+      --primary: #2563eb;
+      --primary-hover: #1d4ed8;
+      --success: #16a34a;
+      --warning: #d97706;
+      --danger: #dc2626;
+      --text: #1f2937;
+      --muted: #6b7280;
+      --radius: 8px;
+      --shadow: 0 1px 4px rgba(0,0,0,.08);
+    }
+
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+
+    header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 14px 24px;
+    }
+    header h1 { font-size: 1.4rem; font-weight: 700; color: var(--primary); }
+    header p  { font-size: .85rem; color: var(--muted); margin-top: 2px; }
+
+    .container { max-width: 1100px; margin: 0 auto; padding: 24px 20px; }
+
+    /* ── Cards ── */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 20px 24px;
+      margin-bottom: 20px;
+    }
+    .card h2 {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-bottom: 16px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    /* ── Form ── */
+    .form-row { display: grid; gap: 14px; }
+    .form-row.two-col { grid-template-columns: 1fr 1fr; }
+    @media (max-width: 600px) { .form-row.two-col { grid-template-columns: 1fr; } }
+
+    label {
+      display: block;
+      font-size: .82rem;
+      font-weight: 600;
+      margin-bottom: 4px;
+      color: var(--text);
+    }
+    label small { font-weight: 400; color: var(--muted); font-size: .78rem; display: block; margin-top: 2px; }
+
+    input[type="url"], input[type="text"], input[type="password"],
+    input[type="number"], select {
+      width: 100%;
+      padding: 8px 10px;
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      font-size: .9rem;
+      background: #fafafa;
+      transition: border-color .15s;
+    }
+    input:focus, select:focus { outline: none; border-color: var(--primary); background: #fff; }
+
+    details { margin-top: 12px; }
+    summary {
+      cursor: pointer;
+      font-size: .85rem;
+      font-weight: 600;
+      color: var(--primary);
+      user-select: none;
+      padding: 6px 0;
+    }
+    details[open] summary { margin-bottom: 12px; }
+    .details-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+    @media (max-width: 600px) { .details-grid { grid-template-columns: 1fr; } }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 9px 20px;
+      border: none;
+      border-radius: 5px;
+      font-size: .9rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background .15s, opacity .15s;
+    }
+    .btn-primary { background: var(--primary); color: #fff; }
+    .btn-primary:hover { background: var(--primary-hover); }
+    .btn-primary:disabled { opacity: .5; cursor: default; }
+    .btn-outline {
+      background: transparent;
+      color: var(--primary);
+      border: 1px solid var(--primary);
+      font-size: .82rem;
+      padding: 6px 14px;
+    }
+    .btn-outline:hover { background: #eff6ff; }
+    .form-footer {
+      margin-top: 16px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    /* ── Phases ── */
+    .phases {
+      display: flex;
+      gap: 0;
+      margin-bottom: 16px;
+    }
+    .phase-step {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      position: relative;
+      font-size: .78rem;
+      color: var(--muted);
+    }
+    .phase-step::after {
+      content: '';
+      position: absolute;
+      top: 14px;
+      left: 50%;
+      width: 100%;
+      height: 2px;
+      background: var(--border);
+      z-index: 0;
+    }
+    .phase-step:last-child::after { display: none; }
+    .phase-dot {
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      background: var(--border);
+      color: var(--muted);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      font-size: .8rem;
+      position: relative;
+      z-index: 1;
+      transition: background .3s, color .3s;
+    }
+    .phase-step.active .phase-dot   { background: var(--primary); color: #fff; }
+    .phase-step.done .phase-dot     { background: var(--success); color: #fff; }
+    .phase-step.active .phase-label { color: var(--primary); font-weight: 600; }
+    .phase-step.done .phase-label   { color: var(--success); }
+    .phase-label { margin-top: 6px; text-align: center; }
+
+    /* ── Progress bar ── */
+    .progress-track {
+      background: #e5e7eb;
+      border-radius: 99px;
+      height: 8px;
+      overflow: hidden;
+      margin-bottom: 10px;
+    }
+    .progress-fill {
+      height: 100%;
+      background: var(--primary);
+      border-radius: 99px;
+      width: 0%;
+      transition: width .4s ease;
+    }
+
+    /* ── Log ── */
+    .log-box {
+      background: #f8f8f8;
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      padding: 10px 12px;
+      height: 130px;
+      overflow-y: auto;
+      font-size: .78rem;
+      font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+      color: var(--text);
+    }
+    .log-line { margin-bottom: 2px; }
+    .log-line.warn { color: var(--warning); }
+    .log-line.err  { color: var(--danger); }
+    .log-line.ok   { color: var(--success); }
+
+    /* ── Results ── */
+    .results-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+    }
+    .results-header h2 { font-size: 1rem; font-weight: 600; }
+
+    /* Summary bar */
+    .summary-bar {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+      gap: 10px;
+      margin-bottom: 16px;
+    }
+    .stat-box {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 12px 16px;
+      text-align: center;
+    }
+    .stat-box .val { font-size: 1.6rem; font-weight: 700; color: var(--primary); }
+    .stat-box .lbl { font-size: .75rem; color: var(--muted); margin-top: 2px; }
+
+    /* Table */
+    .table-wrap {
+      overflow-x: auto;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: var(--surface);
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: .83rem;
+    }
+    thead th {
+      background: #f9fafb;
+      padding: 10px 12px;
+      text-align: left;
+      font-weight: 600;
+      font-size: .78rem;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: .04em;
+      border-bottom: 1px solid var(--border);
+      white-space: nowrap;
+    }
+    tbody tr:not(:last-child) td { border-bottom: 1px solid #f0f0f0; }
+    tbody tr:hover { background: #fafafa; }
+    td { padding: 10px 12px; vertical-align: top; }
+
+    .thumb-strip { display: flex; gap: 4px; flex-wrap: wrap; }
+    .thumb-strip img {
+      width: 52px;
+      height: 40px;
+      object-fit: cover;
+      border-radius: 3px;
+      border: 1px solid var(--border);
+    }
+    .thumb-more {
+      width: 52px;
+      height: 40px;
+      background: #e5e7eb;
+      border-radius: 3px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: .7rem;
+      color: var(--muted);
+      font-weight: 600;
+    }
+
+    .tag-list { display: flex; flex-wrap: wrap; gap: 3px; max-width: 340px; }
+    .tag {
+      background: #eff6ff;
+      color: var(--primary);
+      border: 1px solid #bfdbfe;
+      border-radius: 99px;
+      padding: 1px 7px;
+      font-size: .72rem;
+      white-space: nowrap;
+    }
+    .tag-overflow { font-size: .72rem; color: var(--muted); align-self: center; }
+
+    a.listing-link { color: var(--primary); text-decoration: none; font-weight: 600; }
+    a.listing-link:hover { text-decoration: underline; }
+
+    .badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 99px;
+      font-size: .7rem;
+      font-weight: 600;
+    }
+    .badge-blue  { background: #dbeafe; color: #1d4ed8; }
+    .badge-green { background: #dcfce7; color: #15803d; }
+    .badge-red   { background: #fee2e2; color: #b91c1c; }
+
+    /* hidden helper */
+    .hidden { display: none !important; }
+
+    /* spinner */
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .spinner {
+      display: inline-block;
+      width: 14px;
+      height: 14px;
+      border: 2px solid #fff;
+      border-top-color: transparent;
+      border-radius: 50%;
+      animation: spin .7s linear infinite;
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>Estate Sale Scanner</h1>
+  <p>Scrape estate sale listings, extract images, and run AI object recognition</p>
+</header>
+
+<div class="container">
+
+  <!-- ── Configuration ── -->
+  <div class="card" id="configCard">
+    <h2>Configuration</h2>
+    <form id="scanForm">
+      <div class="form-row">
+        <div>
+          <label for="searchableArea">
+            Search Area URL
+            <small>The browse/search page you want to scan, e.g. https://www.estatesales.net/CA/Rowland-Heights/91748</small>
+          </label>
+          <input type="url" id="searchableArea" placeholder="https://www.estatesales.net/CA/Rowland-Heights/91748" required />
+        </div>
+      </div>
+      <div class="form-row" style="margin-top:12px">
+        <div>
+          <label for="filterPrefix">
+            Listing URL Prefix
+            <small>Only links starting with this string will be treated as estate-sale listings</small>
+          </label>
+          <input type="url" id="filterPrefix" placeholder="https://www.estatesales.net/CA/" required />
+        </div>
+      </div>
+
+      <details style="margin-top:16px">
+        <summary>AI &amp; Advanced Options</summary>
+        <div class="details-grid">
+          <div>
+            <label for="imageDomain">
+              Target Image Domain
+              <small>Only analyze images from this domain</small>
+            </label>
+            <input type="text" id="imageDomain" value="picturescdn.estatesales.net" placeholder="picturescdn.estatesales.net" />
+          </div>
+          <div>
+            <label for="apiType">AI API Type</label>
+            <select id="apiType">
+              <option value="ollama">Ollama (native)</option>
+              <option value="openai">OpenAI-compatible (open-webui)</option>
+            </select>
+          </div>
+          <div>
+            <label for="ollamaUrl">
+              API Base URL
+              <small>Leave blank to skip image analysis</small>
+            </label>
+            <input type="url" id="ollamaUrl" placeholder="http://localhost:11434" />
+          </div>
+          <div>
+            <label for="ollamaModel">Model Name</label>
+            <input type="text" id="ollamaModel" value="llava" placeholder="llava" />
+          </div>
+          <div id="apiKeyRow" class="hidden">
+            <label for="apiKey">
+              API Key
+              <small>Optional for open-webui</small>
+            </label>
+            <input type="password" id="apiKey" placeholder="sk-…" />
+          </div>
+          <div>
+            <label for="maxImages">
+              Max images per listing
+              <small>0 = no limit</small>
+            </label>
+            <input type="number" id="maxImages" value="20" min="0" max="500" />
+          </div>
+        </div>
+      </details>
+
+      <div class="form-footer">
+        <button class="btn btn-primary" type="submit" id="startBtn">
+          Start Scan
+        </button>
+        <span id="formError" style="color:var(--danger);font-size:.85rem"></span>
+      </div>
+    </form>
+  </div>
+
+  <!-- ── Progress ── -->
+  <div class="card hidden" id="progressCard">
+    <h2>Progress</h2>
+    <div class="phases">
+      <div class="phase-step" id="phaseStep1">
+        <div class="phase-dot">1</div>
+        <span class="phase-label">Find Listings</span>
+      </div>
+      <div class="phase-step" id="phaseStep2">
+        <div class="phase-dot">2</div>
+        <span class="phase-label">Scrape Details</span>
+      </div>
+      <div class="phase-step" id="phaseStep3">
+        <div class="phase-dot">3</div>
+        <span class="phase-label">Analyze Images</span>
+      </div>
+    </div>
+    <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
+    <div class="log-box" id="logBox"></div>
+  </div>
+
+  <!-- ── Results ── -->
+  <div class="hidden" id="resultsSection">
+    <div class="results-header">
+      <h2>Results</h2>
+      <button class="btn btn-outline" id="exportBtn">Export CSV</button>
+    </div>
+
+    <div class="summary-bar" id="summaryBar"></div>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Listing</th>
+            <th>Dates</th>
+            <th>Address</th>
+            <th>Images</th>
+            <th>Recognized Objects</th>
+          </tr>
+        </thead>
+        <tbody id="resultsBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+</div><!-- /container -->
+
+<script src="app.js"></script>
+</body>
+</html>

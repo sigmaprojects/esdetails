@@ -1,0 +1,26 @@
+services:
+  esdetails:
+    build: .
+    container_name: esdetails
+    image: esdetails:latest
+    ports:
+      - "3000:3000"
+    environment:
+      # These are defaults; override via a .env file or Portainer environment settings
+      - NODE_ENV=production
+      - PORT=3000
+      # Default Ollama URL — points to the Docker host so the container can reach
+      # an Ollama instance running on the host machine.
+      # Change to a real hostname/IP if Ollama runs elsewhere.
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-llava}
+    extra_hosts:
+      # Allows "host.docker.internal" to resolve to the host on Linux
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
