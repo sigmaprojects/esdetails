@@ -1,15 +1,13 @@
 import axios from 'axios';
 import sharp from 'sharp';
-// 'You are an expert visual analyst. When analyzing an image, identify every visible object and provide maximum detail about each one. Never give vague answers — always attempt to identify brands, models, categories, and specific attributes even if only partially confident. ';
-const IMAGE_PROMPT =
-  'Act as a professional estate sale appraiser and inventory specialist. Analyze this image carefully. There is a group of unlabeled items for sale.' +
-  'lease scan the image from left-to-right and top-to-bottom. For every distinct object you identify, provide a detailed entry using the following structure:' +
-  'Item Name: (Specific name/type of object)' +
-  'Brand/Model: (Visible logos, markings, or identifiable model names. If unknown, state Generic or Unbranded)' +
-  'Material & Color: (e.g., Polished brass, Oak wood, Molded plastic)' +
-  'Physical Condition: (Describe any visible wear, patina, chips, or if it appears Like New)' +
-  'Primary Purpose: (What the item is used for)' +
-  'If items are in a container (like a box of tools or a set of dishes), list the container first and then describe the contents. Be as granular as possible. Do not summarize; list every individual item you can clearly see.';
+
+const DEFAULT_PROMPT =
+  'List every item in this image. For each item, provide only the name and the material/color.\n' +
+  'Rules:\n' +
+  '    Do NOT mention brands, models, or \'generic\'.\n' +
+  '    Do NOT describe condition.\n' +
+  '    Format: [Item Name]: [Material/Color]\n' +
+  '    Be extremely brief. Use one line per item.';
 
 /** Download an image URL and return it as a base64 string, optionally resized. */
 async function fetchBase64(imageUrl, scale = 1) {
@@ -45,12 +43,12 @@ async function fetchBase64(imageUrl, scale = 1) {
  * Call the Ollama native /api/generate endpoint.
  * Expects baseUrl like "http://localhost:11434".
  */
-async function callOllama(baseUrl, model, imageBase64) {
+async function callOllama(baseUrl, model, imageBase64, prompt) {
   const url = baseUrl.replace(/\/$/, '') + '/api/generate';
   const resp = await axios.post(
     url,
-    { model, prompt: IMAGE_PROMPT, images: [imageBase64], stream: false },
-    { timeout: 90000 }
+    { model, prompt, images: [imageBase64], stream: false },
+    { timeout: 300000 } // 5 min timeout for complex images
   );
   return resp.data.response || '';
 }
@@ -59,7 +57,7 @@ async function callOllama(baseUrl, model, imageBase64) {
  * Call an OpenAI-compatible endpoint (e.g. open-webui).
  * Expects baseUrl like "http://localhost:3000".
  */
-async function callOpenAICompat(baseUrl, model, imageBase64, apiKey) {
+async function callOpenAICompat(baseUrl, model, imageBase64, apiKey, prompt) {
   const url = baseUrl.replace(/\/$/, '') + '/api/chat/completions';
   const resp = await axios.post(
     url,
@@ -69,7 +67,7 @@ async function callOpenAICompat(baseUrl, model, imageBase64, apiKey) {
         {
           role: 'user',
           content: [
-            { type: 'text', text: IMAGE_PROMPT },
+            { type: 'text', text: prompt },
             {
               type: 'image_url',
               image_url: { url: `data:image/jpeg;base64,${imageBase64}` },
@@ -89,6 +87,23 @@ async function callOpenAICompat(baseUrl, model, imageBase64, apiKey) {
   return resp.data.choices?.[0]?.message?.content || '';
 }
 
+/**
+ * Analyze a single image and return { objects, error }.
+ * Exported for the retry endpoint.
+ */
+export async function analyzeSingleImage(imageUrl, config) {
+  const { ollamaUrl, ollamaModel, apiType = 'ollama', apiKey, imageScale = 1, aiPrompt } = config;
+  const prompt = aiPrompt || DEFAULT_PROMPT;
+  const b64 = await fetchBase64(imageUrl, imageScale);
+  let responseText;
+  if (apiType === 'openai') {
+    responseText = await callOpenAICompat(ollamaUrl, ollamaModel, b64, apiKey, prompt);
+  } else {
+    responseText = await callOllama(ollamaUrl, ollamaModel, b64, prompt);
+  }
+  return parseObjects(responseText);
+}
+
 /** Parse a comma-separated (or newline-separated) object list into a clean array. */
 function parseObjects(text) {
   return [
@@ -99,6 +114,91 @@ function parseObjects(text) {
         .filter((s) => s.length > 1 && s.length < 80)
     ),
   ];
+}
+
+/**
+ * Analyze all images for a single listing using the configured AI.
+ * Returns the enriched listing object.
+ *
+ * @param {object} listing          - A single listing from scrapeListings()
+ * @param {object} config
+ * @param {Function} progressCallback
+ * @param {{ processed: number, total: number }} counter - shared mutable counter
+ */
+export async function analyzeListing(listing, config, progressCallback, counter) {
+  const { ollamaUrl, ollamaModel, apiType = 'ollama', apiKey, maxImages = 0, imageScale = 1, aiConcurrency = 1, aiPrompt } = config;
+  const prompt = aiPrompt || DEFAULT_PROMPT;
+  const concurrency = Math.max(1, aiConcurrency);
+
+  const images = maxImages > 0 ? (listing.images || []).slice(0, maxImages) : listing.images || [];
+  const describedImages = new Array(images.length);
+  const allObjectsSet = new Set();
+
+  async function processImage(idx) {
+    const imageUrl = images[idx];
+    counter.processed++;
+    progressCallback?.({
+      current: counter.processed,
+      total: counter.total,
+      message: `Analyzing image ${counter.processed}/${counter.total}`,
+      imageUrl,
+      listingTitle: listing.title || listing.url,
+    });
+
+    try {
+      console.log(`[AI] Fetching image & requesting evaluation via ${apiType} using '${ollamaModel}'${imageScale < 1 ? ` (scale: ${imageScale})` : ''}...`);
+      const b64 = await fetchBase64(imageUrl, imageScale);
+      let responseText;
+
+      if (apiType === 'openai') {
+        responseText = await callOpenAICompat(ollamaUrl, ollamaModel, b64, apiKey, prompt);
+      } else {
+        responseText = await callOllama(ollamaUrl, ollamaModel, b64, prompt);
+      }
+
+      const objects = parseObjects(responseText);
+      console.log(`[AI] Success: identified ${objects.length} objects -> ${objects.slice(0, 5).join(', ')}${objects.length > 5 ? ', ...' : ''}`);
+
+      describedImages[idx] = { path: imageUrl, objects };
+      for (const obj of objects) allObjectsSet.add(obj);
+
+      progressCallback?.({
+        type: 'image_analyzed',
+        listingUrl: listing.url,
+        imageUrl,
+        objects,
+        message: `Identified ${objects.length} objects in image`,
+      });
+    } catch (err) {
+      console.error(`[AI] Analysis failed for image: ${err.message}`);
+      describedImages[idx] = { path: imageUrl, objects: [], error: err.message };
+
+      progressCallback?.({
+        type: 'image_analyzed',
+        listingUrl: listing.url,
+        imageUrl,
+        error: err.message,
+        message: `Analysis failed: ${err.message}`,
+      });
+    }
+  }
+
+  // Process images with controlled concurrency using a worker pool
+  const indices = images.map((_, i) => i);
+  let cursor = 0;
+  async function worker() {
+    while (cursor < indices.length) {
+      const idx = cursor++;
+      await processImage(idx);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(concurrency, images.length) }, () => worker()));
+
+  return {
+    ...listing,
+    describedImages: describedImages.filter(Boolean),
+    allRecognizedObjects: [...allObjectsSet].sort().join(', '),
+  };
 }
 
 /**
@@ -115,77 +215,17 @@ function parseObjects(text) {
  * @param {Function} progressCallback
  */
 export async function analyzeImages(listings, config, progressCallback) {
-  const { ollamaUrl, ollamaModel, apiType = 'ollama', apiKey, maxImages = 0, imageScale = 1 } = config;
-
-  // Total images across all listings (respecting per-listing cap)
+  const { maxImages = 0 } = config;
   const cappedListings = listings.map((l) => ({
     ...l,
     images: maxImages > 0 ? (l.images || []).slice(0, maxImages) : l.images || [],
   }));
-
   const totalImages = cappedListings.reduce((sum, l) => sum + l.images.length, 0);
-  let processed = 0;
+  const counter = { processed: 0, total: totalImages };
 
   const results = [];
-
   for (const listing of cappedListings) {
-    const describedImages = [];
-    const allObjectsSet = new Set();
-
-    for (const imageUrl of listing.images) {
-      processed++;
-      progressCallback?.({
-        current: processed,
-        total: totalImages,
-        message: `Analyzing image ${processed}/${totalImages}`,
-        imageUrl,
-        listingTitle: listing.title || listing.url,
-      });
-
-      try {
-        console.log(`[AI] Fetching image & requesting evaluation via ${apiType} using '${ollamaModel}'${imageScale < 1 ? ` (scale: ${imageScale})` : ''}...`);
-        const b64 = await fetchBase64(imageUrl, imageScale);
-        let responseText;
-
-        if (apiType === 'openai') {
-          responseText = await callOpenAICompat(ollamaUrl, ollamaModel, b64, apiKey);
-        } else {
-          responseText = await callOllama(ollamaUrl, ollamaModel, b64);
-        }
-
-        const objects = parseObjects(responseText);
-        console.log(`[AI] Success: identified ${objects.length} objects -> ${objects.slice(0, 5).join(', ')}${objects.length > 5 ? ', ...' : ''}`);
-
-        describedImages.push({ path: imageUrl, objects });
-        for (const obj of objects) allObjectsSet.add(obj);
-
-        progressCallback?.({
-          type: 'image_analyzed',
-          listingUrl: listing.url,
-          imageUrl,
-          objects,
-          message: `Identified ${objects.length} objects in image`,
-        });
-      } catch (err) {
-        console.error(`[AI] Analysis failed for image: ${err.message}`);
-        describedImages.push({ path: imageUrl, objects: [], error: err.message });
-        
-        progressCallback?.({
-          type: 'image_analyzed',
-          listingUrl: listing.url,
-          imageUrl,
-          error: err.message,
-          message: `Analysis failed: ${err.message}`,
-        });
-      }
-    }
-
-    results.push({
-      ...listing,
-      describedImages,
-      allRecognizedObjects: [...allObjectsSet].sort().join(', '),
-    });
+    results.push(await analyzeListing(listing, config, progressCallback, counter));
   }
-
   return results;
 }

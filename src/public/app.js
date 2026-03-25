@@ -11,8 +11,11 @@ const ollamaModelInput    = $('ollamaModel');
 const imageDomainInput    = $('imageDomain');
 const apiKeyInput         = $('apiKey');
 const apiKeyRow           = $('apiKeyRow');
+const searchDistanceInput = $('searchDistance');
 const maxImagesInput      = $('maxImages');
 const imageScaleInput     = $('imageScale');
+const aiConcurrencyInput  = $('aiConcurrency');
+const aiPromptInput       = $('aiPrompt');
 const startBtn            = $('startBtn');
 const formError           = $('formError');
 
@@ -64,6 +67,7 @@ $('scanForm').addEventListener('submit', async (e) => {
   const payload = {
     searchableAreaUrl: searchableAreaInput.value.trim(),
     filterPrefix:      filterPrefixInput.value.trim(),
+    searchDistance:    parseInt(searchDistanceInput.value, 10) || 10,
     ollamaUrl:         ollamaUrlInput.value.trim() || undefined,
     ollamaModel:       ollamaModelInput.value.trim() || 'llava',
     imageDomain:       imageDomainInput.value.trim(),
@@ -71,6 +75,8 @@ $('scanForm').addEventListener('submit', async (e) => {
     apiKey:            apiKeyInput.value.trim() || undefined,
     maxImages:         parseInt(maxImagesInput.value, 10) || 0,
     imageScale:        parseFloat(imageScaleInput.value) || 0.5,
+    aiConcurrency:     parseInt(aiConcurrencyInput.value, 10) || 1,
+    aiPrompt:          aiPromptInput.value.trim() || undefined,
   };
 
   if (!payload.searchableAreaUrl || !payload.filterPrefix) {
@@ -463,10 +469,18 @@ function toggleExpandedRow(tr, r) {
         });
         wrap.appendChild(objs);
       } else if (desc && desc.error) {
-        const err = document.createElement('div');
-        err.className = 'expanded-img-error';
-        err.textContent = 'AI error';
-        wrap.appendChild(err);
+        const errWrap = document.createElement('div');
+        errWrap.className = 'expanded-img-error';
+        errWrap.textContent = 'AI error ';
+        const retryBtn = document.createElement('button');
+        retryBtn.className = 'retry-btn';
+        retryBtn.innerHTML = '&#x21bb; retry';
+        retryBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          retryImageAnalysis(r, url, errWrap);
+        });
+        errWrap.appendChild(retryBtn);
+        wrap.appendChild(errWrap);
       }
       grid.appendChild(wrap);
     });
@@ -505,42 +519,32 @@ function esc(str) {
     .replace(/"/g, '&quot;');
 }
 
-/** Format date strings into a friendlier format like "Wed Mar 25, 10am to 3pm" */
+/** Format date strings into a friendlier format like "Wed, Mar 25 - Fri, Mar 27" */
 function formatDates(dateStr) {
   if (!dateStr) return '';
   const DAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
   const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
-  function fmtTime(d) {
-    let h = d.getHours(), m = d.getMinutes();
-    const ampm = h >= 12 ? 'pm' : 'am';
-    h = h % 12 || 12;
-    return m ? `${h}:${m.toString().padStart(2,'0')}${ampm}` : `${h}${ampm}`;
-  }
   function fmtDate(d) {
-    return `${DAYS[d.getDay()]} ${MONTHS[d.getMonth()]} ${d.getDate()}`;
+    return `${DAYS[d.getDay()]}, ${MONTHS[d.getMonth()]} ${d.getDate()}`;
   }
 
-  // Handle range separated by " – " or " - "
-  const parts = dateStr.split(/\s*[–—-]\s*/);
+  // Split on comma or " – " / " — " but NOT hyphens inside ISO dates
+  const parts = dateStr.split(/\s*[,]\s*|\s+[–—]\s+/);
+  const seen = new Set();
   const formatted = [];
-  let lastDateStr = '';
   for (const part of parts) {
     const d = new Date(part.trim());
     if (isNaN(d.getTime())) {
       return dateStr; // Can't parse — return original
     }
     const ds = fmtDate(d);
-    if (ds === lastDateStr) {
-      // Same day range — just append the time
-      formatted.push(fmtTime(d));
-    } else {
-      lastDateStr = ds;
-      const hasTime = /T\d|\d{1,2}:\d{2}/.test(part.trim());
-      formatted.push(hasTime ? `${ds}, ${fmtTime(d)}` : ds);
+    if (!seen.has(ds)) {
+      seen.add(ds);
+      formatted.push(ds);
     }
   }
-  return formatted.join(' to ');
+  return formatted.join(' - ');
 }
 
 // ── CSV export ────────────────────────────────────────────────────────────
@@ -601,6 +605,9 @@ function findDescribed(listing, imageUrl) {
   return (listing.describedImages || []).find((d) => d.path === imageUrl);
 }
 
+// Track current modal listing for retry
+let _modalListing = null;
+
 /**
  * Open the modal showing a specific image and its AI-detected objects.
  * Also renders a thumbnail nav strip for all images in the listing.
@@ -608,6 +615,7 @@ function findDescribed(listing, imageUrl) {
 function openImageModal(listing, activeImageUrl, highlightObj) {
   const images = listing.images || [];
   if (!images.length) return;
+  _modalListing = listing;
 
   // Render full-size image
   renderModalImage(activeImageUrl);
@@ -661,7 +669,15 @@ function renderModalObjects(described, highlightObj) {
   if (described.error) {
     modalObjSection.style.display = 'none';
     modalError.style.display = 'block';
-    modalError.textContent = `AI error: ${described.error}`;
+    modalError.innerHTML = '';
+    modalError.textContent = `AI error: ${described.error} `;
+    const retryBtn = document.createElement('button');
+    retryBtn.className = 'retry-btn';
+    retryBtn.innerHTML = '&#x21bb; retry';
+    retryBtn.addEventListener('click', () => {
+      retryImageAnalysis(_modalListing, described.path, modalError);
+    });
+    modalError.appendChild(retryBtn);
     return;
   }
 
@@ -681,4 +697,52 @@ function renderModalObjects(described, highlightObj) {
     tag.textContent = obj;
     modalTags.appendChild(tag);
   });
+}
+
+/** Retry AI analysis for a single failed image */
+async function retryImageAnalysis(listing, imageUrl, errorEl) {
+  const retryBtn = errorEl.querySelector('.retry-btn');
+  if (retryBtn) {
+    retryBtn.classList.add('retrying');
+    retryBtn.innerHTML = '&#x21bb; retrying…';
+  }
+  try {
+    const resp = await fetch('/api/retry-image', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        imageUrl,
+        ollamaUrl:   ollamaUrlInput.value.trim(),
+        ollamaModel: ollamaModelInput.value.trim() || 'llava',
+        apiType:     apiTypeSelect.value,
+        apiKey:      apiKeyInput.value.trim() || undefined,
+        imageScale:  parseFloat(imageScaleInput.value) || 0.5,
+        aiPrompt:    aiPromptInput.value.trim() || undefined,
+      }),
+    });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || 'Retry failed');
+
+    // Update listing data in-place
+    listing.describedImages = listing.describedImages || [];
+    const idx = listing.describedImages.findIndex(d => d.path === imageUrl);
+    const entry = { path: imageUrl, objects: data.objects };
+    if (idx !== -1) listing.describedImages[idx] = entry;
+    else listing.describedImages.push(entry);
+
+    // Update allRecognizedObjects
+    const allObjSet = new Set((listing.allRecognizedObjects || '').split(', ').filter(Boolean));
+    data.objects.forEach(o => allObjSet.add(o));
+    listing.allRecognizedObjects = [...allObjSet].sort().join(', ');
+
+    // Re-render table and any open expanded row / modal
+    renderResults(currentResults);
+    log(`↻ Retry success for image: ${data.objects.length} objects found`, 'ok');
+  } catch (err) {
+    log(`↻ Retry failed: ${err.message}`, 'err');
+    if (retryBtn) {
+      retryBtn.classList.remove('retrying');
+      retryBtn.innerHTML = '&#x21bb; retry';
+    }
+  }
 }

@@ -5,7 +5,7 @@ import { fileURLToPath } from 'url';
 import path from 'path';
 
 import { findListings, scrapeListings } from './scraper.js';
-import { analyzeImages } from './imageAnalysis.js';
+import { analyzeImages, analyzeListing, analyzeSingleImage } from './imageAnalysis.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -29,6 +29,7 @@ app.post('/api/start-scan', (req, res) => {
   const {
     searchableAreaUrl,
     filterPrefix,
+    searchDistance,
     imageDomain,
     ollamaUrl,
     ollamaModel,
@@ -36,6 +37,8 @@ app.post('/api/start-scan', (req, res) => {
     apiKey,
     maxImages,
     imageScale,
+    aiConcurrency,
+    aiPrompt,
   } = req.body;
 
   if (!searchableAreaUrl?.trim() || !filterPrefix?.trim()) {
@@ -84,7 +87,7 @@ app.post('/api/start-scan', (req, res) => {
 
   // Fire-and-forget async scan
   runScan(
-    { searchableAreaUrl, filterPrefix, imageDomain, ollamaUrl, ollamaModel, apiType, apiKey, maxImages, imageScale },
+    { searchableAreaUrl, filterPrefix, searchDistance, imageDomain, ollamaUrl, ollamaModel, apiType, apiKey, maxImages, imageScale, aiConcurrency, aiPrompt },
     emitter
   )
     .then((results) => {
@@ -99,6 +102,32 @@ app.post('/api/start-scan', (req, res) => {
     });
 
   res.json({ jobId });
+});
+
+// ── Retry single image analysis ────────────────────────────────────────────
+app.post('/api/retry-image', async (req, res) => {
+  const { imageUrl, ollamaUrl, ollamaModel, apiType, apiKey, imageScale, aiPrompt } = req.body;
+  if (!imageUrl || !ollamaUrl) {
+    return res.status(400).json({ error: 'imageUrl and ollamaUrl are required' });
+  }
+  // Validate URLs
+  for (const u of [imageUrl, ollamaUrl].filter(Boolean)) {
+    try {
+      const parsed = new URL(u);
+      if (!['http:', 'https:'].includes(parsed.protocol)) {
+        return res.status(400).json({ error: `Invalid URL scheme: ${u}` });
+      }
+    } catch { return res.status(400).json({ error: `Invalid URL: ${u}` }); }
+  }
+  try {
+    console.log(`[RETRY] Analyzing image: ${imageUrl}`);
+    const objects = await analyzeSingleImage(imageUrl, { ollamaUrl, ollamaModel, apiType, apiKey, imageScale, aiPrompt });
+    console.log(`[RETRY] Success: ${objects.length} objects`);
+    res.json({ objects });
+  } catch (err) {
+    console.error(`[RETRY] Failed: ${err.message}`);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // ── SSE progress stream ────────────────────────────────────────────────────
@@ -163,7 +192,7 @@ app.get('/api/progress/:jobId', (req, res) => {
 
 // ── Core scan pipeline ─────────────────────────────────────────────────────
 async function runScan(
-  { searchableAreaUrl, filterPrefix, imageDomain, ollamaUrl, ollamaModel, apiType, apiKey, maxImages, imageScale },
+  { searchableAreaUrl, filterPrefix, searchDistance, imageDomain, ollamaUrl, ollamaModel, apiType, apiKey, maxImages, imageScale, aiConcurrency, aiPrompt },
   emitter
 ) {
   const emit = (data) => emitter.emit('progress', data);
@@ -171,7 +200,7 @@ async function runScan(
   // Phase 1 – find listing URLs
   emit({ type: 'phase', phase: 'finding_listings', message: 'Finding estate sale listings…' });
 
-  const listingUrls = await findListings(searchableAreaUrl, filterPrefix, (d) =>
+  const listingUrls = await findListings(searchableAreaUrl, filterPrefix, searchDistance, (d) =>
     emit({ type: 'finding_listings', ...d })
   );
 
@@ -185,12 +214,51 @@ async function runScan(
     return [];
   }
 
-  // Phase 2 – scrape each listing
+  // Phase 2 & 3 – scrape each listing and pipeline AI analysis
   emit({ type: 'phase', phase: 'scraping', message: 'Scraping listing details and images…' });
 
-  const listings = await scrapeListings(listingUrls, imageDomain, (d) =>
-    emit({ type: 'scraping', ...d })
-  );
+  const hasAI = !!(ollamaUrl && ollamaModel);
+  const aiConfig = hasAI
+    ? { ollamaUrl, ollamaModel, apiType: apiType || 'ollama', apiKey, maxImages: maxImages || 0, imageScale: imageScale || 1, aiConcurrency: aiConcurrency || 1, aiPrompt }
+    : null;
+
+  // Shared counter for AI progress (mutable, shared across concurrent analysis promises)
+  const aiCounter = { processed: 0, total: 0 };
+
+  const results = [];
+  const analysisPromises = [];
+
+  const listings = await scrapeListings(listingUrls, imageDomain, (d) => {
+    // Forward scraping progress
+    if (d.type === 'listing_scraped' && hasAI) {
+      const listing = d.listing;
+      const imgCount = maxImages > 0
+        ? Math.min((listing.images || []).length, maxImages)
+        : (listing.images || []).length;
+      aiCounter.total += imgCount;
+
+      // Immediately kick off AI analysis for this listing (runs concurrently with further scraping)
+      if (imgCount > 0) {
+        const promise = analyzeListing(
+          listing,
+          aiConfig,
+          (ad) => emit({ type: ad.type || 'analyzing', ...ad }),
+          aiCounter
+        ).then((enriched) => {
+          results.push(enriched);
+        }).catch((err) => {
+          console.error(`[AI] Listing analysis failed: ${err.message}`);
+          results.push({ ...listing, describedImages: [], allRecognizedObjects: '' });
+        });
+        analysisPromises.push(promise);
+      } else {
+        results.push({ ...listing, describedImages: [], allRecognizedObjects: '' });
+      }
+    } else if (d.type === 'listing_scraped' && !hasAI) {
+      results.push({ ...d.listing, describedImages: [], allRecognizedObjects: '' });
+    }
+    emit({ type: d.type || 'scraping', ...d });
+  });
 
   emit({
     type: 'scraping_done',
@@ -198,26 +266,14 @@ async function runScan(
     totalImages: listings.reduce((n, l) => n + l.images.length, 0),
   });
 
-  // Phase 3 – AI image analysis (optional)
-  if (ollamaUrl && ollamaModel) {
-    emit({ type: 'phase', phase: 'analyzing', message: 'Running AI image analysis…' });
-
-    const results = await analyzeImages(
-      listings,
-      { ollamaUrl, ollamaModel, apiType: apiType || 'ollama', apiKey, maxImages: maxImages || 0, imageScale: imageScale || 1 },
-      (d) => emit({ type: 'analyzing', ...d })
-    );
-
+  // Wait for any in-flight AI analysis to finish
+  if (analysisPromises.length > 0) {
+    emit({ type: 'phase', phase: 'analyzing', message: 'Waiting for remaining AI analysis…' });
+    await Promise.all(analysisPromises);
     emit({ type: 'analyzing_done', message: 'Image analysis complete' });
-    return results;
   }
 
-  // No AI configured – return bare listings with empty analysis fields
-  return listings.map((l) => ({
-    ...l,
-    describedImages: [],
-    allRecognizedObjects: '',
-  }));
+  return results;
 }
 
 // ── Start server ───────────────────────────────────────────────────────────

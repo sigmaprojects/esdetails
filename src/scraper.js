@@ -117,7 +117,7 @@ function extractFromNextData(data, allowedDomain) {
  * Navigate to the SearchableArea URL and return all listing hrefs
  * that begin with filterPrefix.
  */
-export async function findListings(searchableAreaUrl, filterPrefix, progressCallback) {
+export async function findListings(searchableAreaUrl, filterPrefix, searchDistance, progressCallback) {
   const browser = await chromium.launch({
     headless: true,
     args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
@@ -132,7 +132,12 @@ export async function findListings(searchableAreaUrl, filterPrefix, progressCall
     });
 
     await page.goto(searchableAreaUrl, { waitUntil: 'networkidle', timeout: 45000 });
-    progressCallback?.({ message: 'Page loaded, collecting listing links…' });
+    progressCallback?.({ message: 'Page loaded, configuring search filters…' });
+
+    // --- Configure estatesales.net search form ---
+    await configureSearchForm(page, searchDistance || 10, progressCallback);
+
+    progressCallback?.({ message: 'Collecting listing links…' });
 
     const links = await page.evaluate((prefix) => {
       return [
@@ -148,6 +153,96 @@ export async function findListings(searchableAreaUrl, filterPrefix, progressCall
     return links;
   } finally {
     await browser.close();
+  }
+}
+
+/**
+ * Configure the estatesales.net search form:
+ * - Select only "Estate Sales" and "Moving Sales" checkboxes
+ * - Uncheck "Additional Liquidations" options
+ * - Set the distance slider to the specified value
+ */
+async function configureSearchForm(page, distance, progressCallback) {
+  try {
+    // Look for the distance/radius control and set it
+    // estatesales.net uses a distance slider or input — try several selectors
+    const distanceSet = await page.evaluate((dist) => {
+      // Try slider input
+      const slider = document.querySelector('input[type="range"][name*="distance" i], input[type="range"][name*="radius" i], input[type="range"][name*="mile" i], input.distance-slider, input#distance, input#radius');
+      if (slider) {
+        const nativeSet = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+        nativeSet.call(slider, dist);
+        slider.dispatchEvent(new Event('input', { bubbles: true }));
+        slider.dispatchEvent(new Event('change', { bubbles: true }));
+        return `slider: ${dist}`;
+      }
+      // Try a number input or select near "miles" or "distance" text
+      const labels = [...document.querySelectorAll('label, span, div')];
+      for (const el of labels) {
+        if (/mile|distance|radius/i.test(el.textContent)) {
+          const input = el.querySelector('input, select') || el.parentElement?.querySelector('input, select');
+          if (input) {
+            const nativeSet = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+            nativeSet.call(input, dist);
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+            input.dispatchEvent(new Event('change', { bubbles: true }));
+            return `input: ${dist}`;
+          }
+        }
+      }
+      return null;
+    }, distance);
+    if (distanceSet) {
+      progressCallback?.({ message: `Set search distance to ${distance} miles` });
+    }
+
+    // Configure sale type checkboxes
+    await page.evaluate(() => {
+      const checkboxes = document.querySelectorAll('input[type="checkbox"]');
+      // Categorize checkboxes by their label text
+      for (const cb of checkboxes) {
+        const label = cb.closest('label') || document.querySelector(`label[for="${cb.id}"]`);
+        const text = (label?.textContent || cb.getAttribute('aria-label') || cb.name || '').trim().toLowerCase();
+        
+        if (text.includes('estate sale') || text.includes('estate sales')) {
+          if (!cb.checked) cb.click();
+        } else if (text.includes('moving sale') || text.includes('moving sales')) {
+          if (!cb.checked) cb.click();
+        } else if (
+          text.includes('auction') || text.includes('online') ||
+          text.includes('dealer') || text.includes('other') ||
+          text.includes('additional') || text.includes('liquidation') ||
+          text.includes('tag sale') || text.includes('garage')
+        ) {
+          if (cb.checked) cb.click();
+        }
+      }
+    });
+    progressCallback?.({ message: 'Configured sale type filters (Estate Sales + Moving Sales only)' });
+
+    // Look for an "Apply" or "Search" or "Update" button to submit the filter
+    const applied = await page.evaluate(() => {
+      const buttons = [...document.querySelectorAll('button, input[type="submit"], a.btn, a.button')];
+      for (const btn of buttons) {
+        const text = (btn.textContent || btn.value || '').trim().toLowerCase();
+        if (text.includes('apply') || text.includes('update') || text.includes('search') || text.includes('filter')) {
+          btn.click();
+          return text;
+        }
+      }
+      return null;
+    });
+
+    if (applied) {
+      progressCallback?.({ message: `Clicked "${applied}" to apply filters, waiting for results…` });
+      await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
+    } else {
+      // If no apply button, wait briefly for any dynamic updates
+      await sleep(2000);
+    }
+  } catch (err) {
+    console.warn(`[SCRAPER] Could not configure search form: ${err.message}`);
+    progressCallback?.({ message: `Warning: Could not fully configure search form: ${err.message}` });
   }
 }
 

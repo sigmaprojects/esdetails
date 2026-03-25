@@ -518,13 +518,20 @@
           <input type="url" id="searchableArea" placeholder="https://www.estatesales.net/CA/Rowland-Heights/91748" required />
         </div>
       </div>
-      <div class="form-row" style="margin-top:12px">
+      <div class="form-row two-col" style="margin-top:12px">
         <div>
           <label for="filterPrefix">
             Listing URL Prefix
             <small>Only links starting with this string will be treated as estate-sale listings</small>
           </label>
           <input type="url" id="filterPrefix" placeholder="https://www.estatesales.net/CA/" required />
+        </div>
+        <div>
+          <label for="searchDistance">
+            Search Distance (miles)
+            <small>Radius around the search area</small>
+          </label>
+          <input type="number" id="searchDistance" value="10" min="1" max="200" />
         </div>
       </div>
 
@@ -577,6 +584,25 @@
             </label>
             <input type="number" id="imageScale" value="0.5" min="0.1" max="1" step="0.05" />
           </div>
+          <div>
+            <label for="aiConcurrency">
+              AI Concurrency
+              <small>Simultaneous image requests to Ollama</small>
+            </label>
+            <input type="number" id="aiConcurrency" value="1" min="1" max="20" />
+          </div>
+        </div>
+        <div style="margin-top:12px">
+          <label for="aiPrompt">
+            AI Prompt
+            <small>The instruction sent with each image to the vision model</small>
+          </label>
+          <textarea id="aiPrompt" rows="5" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:5px;font-size:.85rem;background:#fafafa;resize:vertical;font-family:system-ui,sans-serif">List every item in this image. For each item, provide only the name and the material/color.
+Rules:
+    Do NOT mention brands, models, or 'generic'.
+    Do NOT describe condition.
+    Format: [Item Name]: [Material/Color]
+    Be extremely brief. Use one line per item.</textarea>
         </div>
       </details>
 
