@@ -297,6 +297,20 @@ async function scrapeListing(browser, url, imageDomain) {
         )
         .catch(() => '');
     }
+    // --- Strategy 3b: Google Maps link fallback for address ---
+    if (!address) {
+      address = await page
+        .evaluate(() => {
+          const link = document.querySelector('a[href*="maps.google.com/maps?q="]');
+          if (!link) return '';
+          try {
+            const url = new URL(link.href);
+            const q = url.searchParams.get('q');
+            return q ? decodeURIComponent(q).replace(/\+/g, ' ') : '';
+          } catch { return ''; }
+        })
+        .catch(() => '');
+    }
     if (!dates) {
       dates = await page
         .$eval(

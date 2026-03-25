@@ -35,6 +35,7 @@ app.post('/api/start-scan', (req, res) => {
     apiType,
     apiKey,
     maxImages,
+    imageScale,
   } = req.body;
 
   if (!searchableAreaUrl?.trim() || !filterPrefix?.trim()) {
@@ -83,7 +84,7 @@ app.post('/api/start-scan', (req, res) => {
 
   // Fire-and-forget async scan
   runScan(
-    { searchableAreaUrl, filterPrefix, imageDomain, ollamaUrl, ollamaModel, apiType, apiKey, maxImages },
+    { searchableAreaUrl, filterPrefix, imageDomain, ollamaUrl, ollamaModel, apiType, apiKey, maxImages, imageScale },
     emitter
   )
     .then((results) => {
@@ -162,7 +163,7 @@ app.get('/api/progress/:jobId', (req, res) => {
 
 // ── Core scan pipeline ─────────────────────────────────────────────────────
 async function runScan(
-  { searchableAreaUrl, filterPrefix, imageDomain, ollamaUrl, ollamaModel, apiType, apiKey, maxImages },
+  { searchableAreaUrl, filterPrefix, imageDomain, ollamaUrl, ollamaModel, apiType, apiKey, maxImages, imageScale },
   emitter
 ) {
   const emit = (data) => emitter.emit('progress', data);
@@ -203,7 +204,7 @@ async function runScan(
 
     const results = await analyzeImages(
       listings,
-      { ollamaUrl, ollamaModel, apiType: apiType || 'ollama', apiKey, maxImages: maxImages || 0 },
+      { ollamaUrl, ollamaModel, apiType: apiType || 'ollama', apiKey, maxImages: maxImages || 0, imageScale: imageScale || 1 },
       (d) => emit({ type: 'analyzing', ...d })
     );
 

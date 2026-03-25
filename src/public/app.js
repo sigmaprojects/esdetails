@@ -12,6 +12,7 @@ const imageDomainInput    = $('imageDomain');
 const apiKeyInput         = $('apiKey');
 const apiKeyRow           = $('apiKeyRow');
 const maxImagesInput      = $('maxImages');
+const imageScaleInput     = $('imageScale');
 const startBtn            = $('startBtn');
 const formError           = $('formError');
 
@@ -69,6 +70,7 @@ $('scanForm').addEventListener('submit', async (e) => {
     apiType:           apiTypeSelect.value,
     apiKey:            apiKeyInput.value.trim() || undefined,
     maxImages:         parseInt(maxImagesInput.value, 10) || 0,
+    imageScale:        parseFloat(imageScaleInput.value) || 0.5,
   };
 
   if (!payload.searchableAreaUrl || !payload.filterPrefix) {
@@ -332,7 +334,7 @@ function buildRow(r) {
 
   // Dates
   const datesTd = document.createElement('td');
-  datesTd.textContent = r.dates || '—';
+  datesTd.textContent = formatDates(r.dates) || '—';
   datesTd.style.whiteSpace = 'nowrap';
 
   // Address
@@ -346,13 +348,13 @@ function buildRow(r) {
   strip.className = 'thumb-strip';
   const MAX_THUMBS = 5;
   const imgs = r.images || [];
-  imgs.slice(0, MAX_THUMBS).forEach((url, idx) => {
+  imgs.slice(0, MAX_THUMBS).forEach((url) => {
     const img = document.createElement('img');
     img.src = url;
     img.alt = '';
     img.loading = 'lazy';
     img.onerror = () => { img.style.display = 'none'; };
-    img.addEventListener('click', () => openImageModal(r, url));
+    img.addEventListener('click', (e) => { e.stopPropagation(); openImageModal(r, url); });
     strip.appendChild(img);
   });
   if (imgs.length > MAX_THUMBS) {
@@ -360,12 +362,15 @@ function buildRow(r) {
     more.className = 'thumb-more';
     more.textContent = `+${imgs.length - MAX_THUMBS}`;
     more.style.cursor = 'pointer';
-    more.addEventListener('click', () => openImageModal(r, imgs[MAX_THUMBS]));
+    more.addEventListener('click', (e) => { e.stopPropagation(); openImageModal(r, imgs[MAX_THUMBS]); });
     strip.appendChild(more);
   }
   if (imgs.length === 0) strip.innerHTML = '<span style="color:var(--muted);font-size:.75rem">none</span>';
   imgTd.appendChild(strip);
-  imgTd.innerHTML += `<div style="font-size:.7rem;color:var(--muted);margin-top:4px">${imgs.length} image${imgs.length !== 1 ? 's' : ''}</div>`;
+  const imgCount = document.createElement('div');
+  imgCount.style.cssText = 'font-size:.7rem;color:var(--muted);margin-top:4px';
+  imgCount.textContent = `${imgs.length} image${imgs.length !== 1 ? 's' : ''}`;
+  imgTd.appendChild(imgCount);
 
   // Recognized objects — clickable tags
   const objTd = document.createElement('td');
@@ -394,8 +399,102 @@ function buildRow(r) {
     objTd.innerHTML = '<span style="color:var(--muted);font-size:.75rem">—</span>';
   }
 
+  // Make row expandable on click
+  tr.style.cursor = 'pointer';
+  tr.addEventListener('click', () => toggleExpandedRow(tr, r));
+
   tr.append(titleTd, datesTd, addrTd, imgTd, objTd);
   return tr;
+}
+
+/** Toggle an expanded detail row below the clicked row. */
+function toggleExpandedRow(tr, r) {
+  const existing = tr.nextElementSibling;
+  if (existing && existing.classList.contains('expanded-row')) {
+    existing.remove();
+    tr.classList.remove('row-expanded');
+    return;
+  }
+  // Remove any other expanded rows
+  document.querySelectorAll('.expanded-row').forEach(el => el.remove());
+  document.querySelectorAll('.row-expanded').forEach(el => el.classList.remove('row-expanded'));
+
+  tr.classList.add('row-expanded');
+  const expTr = document.createElement('tr');
+  expTr.className = 'expanded-row';
+  const expTd = document.createElement('td');
+  expTd.colSpan = 5;
+  expTd.className = 'expanded-cell';
+
+  const imgs = r.images || [];
+  const described = r.describedImages || [];
+
+  // All images grid
+  if (imgs.length) {
+    const title = document.createElement('div');
+    title.className = 'expanded-section-title';
+    title.textContent = `All Images (${imgs.length})`;
+    expTd.appendChild(title);
+
+    const grid = document.createElement('div');
+    grid.className = 'expanded-img-grid';
+    imgs.forEach((url) => {
+      const wrap = document.createElement('div');
+      wrap.className = 'expanded-img-card';
+      const img = document.createElement('img');
+      img.src = url;
+      img.alt = '';
+      img.loading = 'lazy';
+      img.onerror = () => { wrap.style.display = 'none'; };
+      img.addEventListener('click', (e) => { e.stopPropagation(); openImageModal(r, url); });
+      wrap.appendChild(img);
+
+      // Show objects for this image if analyzed
+      const desc = described.find(d => d.path === url);
+      if (desc && desc.objects && desc.objects.length) {
+        const objs = document.createElement('div');
+        objs.className = 'expanded-img-objects';
+        desc.objects.forEach(o => {
+          const tag = document.createElement('span');
+          tag.className = 'tag clickable';
+          tag.textContent = o;
+          tag.addEventListener('click', (e) => { e.stopPropagation(); openImageModal(r, url, o); });
+          objs.appendChild(tag);
+        });
+        wrap.appendChild(objs);
+      } else if (desc && desc.error) {
+        const err = document.createElement('div');
+        err.className = 'expanded-img-error';
+        err.textContent = 'AI error';
+        wrap.appendChild(err);
+      }
+      grid.appendChild(wrap);
+    });
+    expTd.appendChild(grid);
+  }
+
+  // All recognized objects
+  const allObjs = (r.allRecognizedObjects || '').split(', ').filter(Boolean);
+  if (allObjs.length) {
+    const title = document.createElement('div');
+    title.className = 'expanded-section-title';
+    title.textContent = `All Recognized Objects (${allObjs.length})`;
+    expTd.appendChild(title);
+
+    const tagList = document.createElement('div');
+    tagList.className = 'tag-list';
+    allObjs.forEach(obj => {
+      const tag = document.createElement('span');
+      tag.className = 'tag clickable';
+      tag.textContent = obj;
+      tag.addEventListener('click', (e) => { e.stopPropagation(); openObjectModal(r, obj); });
+      tagList.appendChild(tag);
+    });
+    expTd.appendChild(tagList);
+  }
+
+  expTr.appendChild(expTd);
+  tr.after(expTr);
 }
 
 function esc(str) {
@@ -404,6 +503,44 @@ function esc(str) {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
+}
+
+/** Format date strings into a friendlier format like "Wed Mar 25, 10am to 3pm" */
+function formatDates(dateStr) {
+  if (!dateStr) return '';
+  const DAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+  function fmtTime(d) {
+    let h = d.getHours(), m = d.getMinutes();
+    const ampm = h >= 12 ? 'pm' : 'am';
+    h = h % 12 || 12;
+    return m ? `${h}:${m.toString().padStart(2,'0')}${ampm}` : `${h}${ampm}`;
+  }
+  function fmtDate(d) {
+    return `${DAYS[d.getDay()]} ${MONTHS[d.getMonth()]} ${d.getDate()}`;
+  }
+
+  // Handle range separated by " – " or " - "
+  const parts = dateStr.split(/\s*[–—-]\s*/);
+  const formatted = [];
+  let lastDateStr = '';
+  for (const part of parts) {
+    const d = new Date(part.trim());
+    if (isNaN(d.getTime())) {
+      return dateStr; // Can't parse — return original
+    }
+    const ds = fmtDate(d);
+    if (ds === lastDateStr) {
+      // Same day range — just append the time
+      formatted.push(fmtTime(d));
+    } else {
+      lastDateStr = ds;
+      const hasTime = /T\d|\d{1,2}:\d{2}/.test(part.trim());
+      formatted.push(hasTime ? `${ds}, ${fmtTime(d)}` : ds);
+    }
+  }
+  return formatted.join(' to ');
 }
 
 // ── CSV export ────────────────────────────────────────────────────────────

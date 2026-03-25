@@ -1,4 +1,5 @@
 import axios from 'axios';
+import sharp from 'sharp';
 // 'You are an expert visual analyst. When analyzing an image, identify every visible object and provide maximum detail about each one. Never give vague answers — always attempt to identify brands, models, categories, and specific attributes even if only partially confident. ';
 const IMAGE_PROMPT =
   'Act as a professional estate sale appraiser and inventory specialist. Analyze this image carefully. There is a group of unlabeled items for sale.' +
@@ -10,8 +11,8 @@ const IMAGE_PROMPT =
   'Primary Purpose: (What the item is used for)' +
   'If items are in a container (like a box of tools or a set of dishes), list the container first and then describe the contents. Be as granular as possible. Do not summarize; list every individual item you can clearly see.';
 
-/** Download an image URL and return it as a base64 string. */
-async function fetchBase64(imageUrl) {
+/** Download an image URL and return it as a base64 string, optionally resized. */
+async function fetchBase64(imageUrl, scale = 1) {
   const response = await axios.get(imageUrl, {
     responseType: 'arraybuffer',
     timeout: 20000,
@@ -21,7 +22,23 @@ async function fetchBase64(imageUrl) {
         'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
     },
   });
-  return Buffer.from(response.data).toString('base64');
+
+  let buffer = Buffer.from(response.data);
+
+  if (scale > 0 && scale < 1) {
+    try {
+      const meta = await sharp(buffer).metadata();
+      const newWidth = Math.round(meta.width * scale);
+      buffer = await sharp(buffer)
+        .resize({ width: newWidth, withoutEnlargement: true })
+        .toBuffer();
+      console.log(`[AI] Resized image from ${meta.width}x${meta.height} to ${newWidth}x${Math.round(meta.height * scale)}`);
+    } catch (err) {
+      console.warn(`[AI] Could not resize image, sending original: ${err.message}`);
+    }
+  }
+
+  return buffer.toString('base64');
 }
 
 /**
@@ -98,7 +115,7 @@ function parseObjects(text) {
  * @param {Function} progressCallback
  */
 export async function analyzeImages(listings, config, progressCallback) {
-  const { ollamaUrl, ollamaModel, apiType = 'ollama', apiKey, maxImages = 0 } = config;
+  const { ollamaUrl, ollamaModel, apiType = 'ollama', apiKey, maxImages = 0, imageScale = 1 } = config;
 
   // Total images across all listings (respecting per-listing cap)
   const cappedListings = listings.map((l) => ({
@@ -126,8 +143,8 @@ export async function analyzeImages(listings, config, progressCallback) {
       });
 
       try {
-        console.log(`[AI] Fetching image & requesting evaluation via ${apiType} using '${ollamaModel}'...`);
-        const b64 = await fetchBase64(imageUrl);
+        console.log(`[AI] Fetching image & requesting evaluation via ${apiType} using '${ollamaModel}'${imageScale < 1 ? ` (scale: ${imageScale})` : ''}...`);
+        const b64 = await fetchBase64(imageUrl, imageScale);
         let responseText;
 
         if (apiType === 'openai') {
