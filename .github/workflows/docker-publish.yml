@@ -22,8 +22,6 @@ jobs:
         with:
           context: .
           push: true
-          tags: |
-            ${{ secrets.DOCKERHUB_USERNAME }}/esdetails:latest
-            ${{ secrets.DOCKERHUB_USERNAME }}/esdetails:${{ github.sha }}
+          tags: ${{ secrets.DOCKERHUB_USERNAME }}/esdetails:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
