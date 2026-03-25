@@ -1,7 +1,14 @@
 import axios from 'axios';
-
+// 'You are an expert visual analyst. When analyzing an image, identify every visible object and provide maximum detail about each one. Never give vague answers — always attempt to identify brands, models, categories, and specific attributes even if only partially confident. ';
 const IMAGE_PROMPT =
-  'You are an expert visual analyst. When analyzing an image, identify every visible object and provide maximum detail about each one. Never give vague answers — always attempt to identify brands, models, categories, and specific attributes even if only partially confident. ';
+  'Act as a professional estate sale appraiser and inventory specialist. Analyze this image carefully. There is a group of unlabeled items for sale.' +
+  'lease scan the image from left-to-right and top-to-bottom. For every distinct object you identify, provide a detailed entry using the following structure:' +
+  'Item Name: (Specific name/type of object)' +
+  'Brand/Model: (Visible logos, markings, or identifiable model names. If unknown, state Generic or Unbranded)' +
+  'Material & Color: (e.g., Polished brass, Oak wood, Molded plastic)' +
+  'Physical Condition: (Describe any visible wear, patina, chips, or if it appears Like New)' +
+  'Primary Purpose: (What the item is used for)' +
+  'If items are in a container (like a box of tools or a set of dishes), list the container first and then describe the contents. Be as granular as possible. Do not summarize; list every individual item you can clearly see.';
 
 /** Download an image URL and return it as a base64 string. */
 async function fetchBase64(imageUrl) {
