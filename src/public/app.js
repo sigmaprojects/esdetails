@@ -1,5 +1,5 @@
 /* ─── Estate Sale Scanner — frontend app ─────────────────────────────── */
-
+// bump 0.0.1
 // ── Cached DOM refs ──────────────────────────────────────────────────────
 const $ = (id) => document.getElementById(id);
 
