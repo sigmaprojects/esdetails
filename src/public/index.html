@@ -557,11 +557,11 @@
               API Base URL
               <small>Leave blank to skip image analysis</small>
             </label>
-            <input type="url" id="ollamaUrl" placeholder="http://localhost:11434" />
+            <input type="url" id="ollamaUrl" value="http://192.168.1.34:11434" placeholder="http://192.168.1.34:11434" />
           </div>
           <div>
             <label for="ollamaModel">Model Name</label>
-            <input type="text" id="ollamaModel" value="llava" placeholder="llava" />
+            <input type="text" id="ollamaModel" value="llava-llama3:8b" placeholder="llava-llama3:8b" />
           </div>
           <div id="apiKeyRow" class="hidden">
             <label for="apiKey">
@@ -575,7 +575,7 @@
               Max images per listing
               <small>0 = no limit</small>
             </label>
-            <input type="number" id="maxImages" value="20" min="0" max="500" />
+            <input type="number" id="maxImages" value="50" min="0" max="500" />
           </div>
           <div>
             <label for="imageScale">
@@ -644,6 +644,10 @@ Rules:
     </div>
 
     <div class="summary-bar" id="summaryBar"></div>
+
+    <div style="margin-bottom:12px">
+      <input type="text" id="resultsFilter" placeholder="Filter results…" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:5px;font-size:.9rem;background:#fafafa" />
+    </div>
 
     <div class="table-wrap">
       <table>

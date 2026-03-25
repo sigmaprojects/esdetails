@@ -28,11 +28,13 @@ const resultsSection = $('resultsSection');
 const summaryBar     = $('summaryBar');
 const resultsBody    = $('resultsBody');
 const exportBtn      = $('exportBtn');
+const resultsFilter  = $('resultsFilter');
 
 // ── State ────────────────────────────────────────────────────────────────
 let currentResults = [];
 let currentPhase   = 0;  // 1, 2, or 3
 let phaseProgress  = { 2: { cur: 0, tot: 0 }, 3: { cur: 0, tot: 0 } };
+let expandedUrl    = null;  // track which listing row is expanded
 
 // ── Auto-populate filter prefix from search area URL ────────────────────
 searchableAreaInput.addEventListener('input', () => {
@@ -69,7 +71,7 @@ $('scanForm').addEventListener('submit', async (e) => {
     filterPrefix:      filterPrefixInput.value.trim(),
     searchDistance:    parseInt(searchDistanceInput.value, 10) || 10,
     ollamaUrl:         ollamaUrlInput.value.trim() || undefined,
-    ollamaModel:       ollamaModelInput.value.trim() || 'llava',
+    ollamaModel:       ollamaModelInput.value.trim() || 'llava-llama3:8b',
     imageDomain:       imageDomainInput.value.trim(),
     apiType:           apiTypeSelect.value,
     apiKey:            apiKeyInput.value.trim() || undefined,
@@ -105,6 +107,12 @@ $('scanForm').addEventListener('submit', async (e) => {
     setStartBusy(false);
   }
 });
+
+// ── Global heartbeat to keep browser connected ──────────────────────────
+(function connectHeartbeat() {
+  const hb = new EventSource('/api/heartbeat');
+  hb.onerror = () => { hb.close(); setTimeout(connectHeartbeat, 3000); };
+})();
 
 // ── SSE subscription ─────────────────────────────────────────────────────
 function subscribeToProgress(jobId, hasAI) {
@@ -322,11 +330,35 @@ function renderResults(results) {
 
   resultsBody.innerHTML = '';
   for (const r of results) {
-    resultsBody.appendChild(buildRow(r));
+    const tr = buildRow(r);
+    resultsBody.appendChild(tr);
+    // Restore expanded state
+    if (expandedUrl && r.url === expandedUrl) {
+      toggleExpandedRow(tr, r);
+    }
   }
 
   resultsSection.classList.remove('hidden');
 }
+
+// ── Results filter ────────────────────────────────────────────────────────
+resultsFilter.addEventListener('input', () => {
+  const q = resultsFilter.value.toLowerCase();
+  for (const tr of resultsBody.querySelectorAll(':scope > tr')) {
+    if (tr.classList.contains('expanded-row')) {
+      tr.style.display = '';
+      continue;
+    }
+    const text = tr.textContent.toLowerCase();
+    const match = !q || text.includes(q);
+    tr.style.display = match ? '' : 'none';
+    // Hide any expanded row following a hidden row
+    const next = tr.nextElementSibling;
+    if (next && next.classList.contains('expanded-row')) {
+      next.style.display = match ? '' : 'none';
+    }
+  }
+});
 
 function buildRow(r) {
   const tr = document.createElement('tr');
@@ -419,6 +451,7 @@ function toggleExpandedRow(tr, r) {
   if (existing && existing.classList.contains('expanded-row')) {
     existing.remove();
     tr.classList.remove('row-expanded');
+    expandedUrl = null;
     return;
   }
   // Remove any other expanded rows
@@ -426,6 +459,7 @@ function toggleExpandedRow(tr, r) {
   document.querySelectorAll('.row-expanded').forEach(el => el.classList.remove('row-expanded'));
 
   tr.classList.add('row-expanded');
+  expandedUrl = r.url;
   const expTr = document.createElement('tr');
   expTr.className = 'expanded-row';
   const expTd = document.createElement('td');

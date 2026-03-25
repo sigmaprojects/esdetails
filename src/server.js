@@ -13,6 +13,24 @@ const app = express();
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
+// ── Global heartbeat SSE ───────────────────────────────────────────────────
+const heartbeatClients = new Set();
+app.get('/api/heartbeat', (req, res) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+  res.flushHeaders();
+  heartbeatClients.add(res);
+  req.on('close', () => heartbeatClients.delete(res));
+});
+setInterval(() => {
+  for (const res of heartbeatClients) {
+    if (res.writableEnded) { heartbeatClients.delete(res); continue; }
+    res.write(': ping\n\n');
+  }
+}, 15000);
+
 // ── In-memory job store ────────────────────────────────────────────────────
 const jobs = new Map();
 
