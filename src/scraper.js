@@ -3,6 +3,37 @@ import { chromium } from 'playwright';
 const DELAY_MS = 1200;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+/**
+ * Scroll the page progressively until all lazy-loaded content has appeared.
+ * Keeps scrolling until the scroll height stops growing for several consecutive checks.
+ */
+async function scrollToLoadAll(page, { maxScrolls = 80, scrollPause = 1200 } = {}) {
+  let previousHeight = 0;
+  let stableCount = 0;
+  const stableThreshold = 3; // stop after height unchanged N times in a row
+
+  for (let i = 0; i < maxScrolls; i++) {
+    const currentHeight = await page.evaluate(() => document.body.scrollHeight);
+
+    if (currentHeight === previousHeight) {
+      stableCount++;
+      if (stableCount >= stableThreshold) break;
+    } else {
+      stableCount = 0;
+    }
+
+    previousHeight = currentHeight;
+
+    // Scroll to the bottom
+    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+    await sleep(scrollPause);
+  }
+
+  // Scroll back to top so strategies like click-through work from the beginning
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await sleep(300);
+}
+
 /** Returns true for URLs that look like real gallery photos (not icons/logos). */
 function isGalleryImage(url, allowedDomain) {
   if (!url || typeof url !== 'string') return false;
@@ -229,28 +260,39 @@ async function configureSearchForm(page, distance, progressCallback) {
       progressCallback?.({ message: `Set search distance to ${distance} miles` });
     }
 
-    // Configure sale type checkboxes
-    await page.evaluate(() => {
+    // Configure sale type checkboxes:
+    // - Keep checked: Estate Sales, Moving Sales
+    // - Uncheck all "Additional Liquidations": Business Closings, Moved Offsite To Store,
+    //   Outside Sales, Single Item Type Collections, Buyouts Or Cleanouts, Demolition Sales
+    const uncheckedLabels = await page.evaluate(() => {
+      const unchecked = [];
+      const uncheckPatterns = [
+        'business closing', 'moved offsite', 'outside sale',
+        'single item', 'buyout', 'cleanout', 'demolition',
+        'auction', 'online', 'dealer', 'other',
+        'additional', 'liquidation', 'tag sale', 'garage',
+      ];
       const checkboxes = document.querySelectorAll('input[type="checkbox"]');
-      // Categorize checkboxes by their label text
       for (const cb of checkboxes) {
         const label = cb.closest('label') || document.querySelector(`label[for="${cb.id}"]`);
         const text = (label?.textContent || cb.getAttribute('aria-label') || cb.name || '').trim().toLowerCase();
-        
+
         if (text.includes('estate sale') || text.includes('estate sales')) {
           if (!cb.checked) cb.click();
         } else if (text.includes('moving sale') || text.includes('moving sales')) {
           if (!cb.checked) cb.click();
-        } else if (
-          text.includes('auction') || text.includes('online') ||
-          text.includes('dealer') || text.includes('other') ||
-          text.includes('additional') || text.includes('liquidation') ||
-          text.includes('tag sale') || text.includes('garage')
-        ) {
-          if (cb.checked) cb.click();
+        } else if (uncheckPatterns.some((p) => text.includes(p))) {
+          if (cb.checked) {
+            cb.click();
+            unchecked.push(text);
+          }
         }
       }
+      return unchecked;
     });
+    if (uncheckedLabels.length > 0) {
+      progressCallback?.({ message: `Unchecked Additional Liquidations: ${uncheckedLabels.join(', ')}` });
+    }
     progressCallback?.({ message: 'Configured sale type filters (Estate Sales + Moving Sales only)' });
 
     // Look for an "Apply" or "Search" or "Update" button to submit the filter
@@ -364,6 +406,9 @@ async function scrapeListing(browser, url, imageDomain) {
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 40000 });
     // Best-effort wait for JS gallery to hydrate
     await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
+
+    // Scroll the page to trigger lazy-loaded gallery images
+    await scrollToLoadAll(page);
 
     let title = '';
     let dates = '';

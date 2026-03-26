@@ -1,6 +1,8 @@
 services:
   esdetails:
     container_name: esdetails
+    # REMOVE THE BUILD LINE WHEN USING A PRE-BUILT IMAGE FROM DOCKER HUB
+    build: .
     image: sigmaprojects/esdetails:latest
     ports:
       - "3000:3000"
