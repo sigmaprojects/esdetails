@@ -27,12 +27,6 @@ if (!cols.includes('distance')) {
   db.exec("ALTER TABLE zipcodes ADD COLUMN distance INTEGER DEFAULT 10");
 }
 
-// Migration: add scraped_at to listings
-const listCols = db.prepare("PRAGMA table_info(listings)").all().map(c => c.name);
-if (!listCols.includes('scraped_at')) {
-  db.exec("ALTER TABLE listings ADD COLUMN scraped_at TEXT");
-}
-
 db.exec(`
   CREATE TABLE IF NOT EXISTS listings (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -60,6 +54,12 @@ db.exec(`
     value TEXT NOT NULL
   );
 `);
+
+// Migration: add scraped_at to listings
+const listCols = db.prepare("PRAGMA table_info(listings)").all().map(c => c.name);
+if (!listCols.includes('scraped_at')) {
+  db.exec("ALTER TABLE listings ADD COLUMN scraped_at TEXT");
+}
 
 // ── Default settings ───────────────────────────────────────────────────────
 const DEFAULTS = {

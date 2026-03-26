@@ -1,8 +1,7 @@
 services:
   esdetails:
-    build: .
     container_name: esdetails
-    image: esdetails:latest
+    image: sigmaprojects/esdetails:latest
     ports:
       - "3000:3000"
     volumes:
