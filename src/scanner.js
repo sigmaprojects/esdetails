@@ -1,10 +1,14 @@
 import path from 'path';
+import fs from 'fs';
 import * as db from './db.js';
 import { findListings, scrapeListings } from './scraper.js';
 import { downloadImageToLocal, analyzeLocalImage } from './imageAnalysis.js';
 
 let scanning = false;
 let intervalTimer = null;
+
+const LISTING_CACHE_MS = (parseFloat(process.env.LISTING_CACHE_HOURS) || 24) * 3600_000;
+const IMAGE_CACHE_MS  = (parseFloat(process.env.IMAGE_CACHE_DAYS) || 7) * 86400_000;
 
 // ── Scheduler ──────────────────────────────────────────────────────────────
 export function startScheduler(hours, broadcast) {
@@ -64,10 +68,22 @@ export async function runFullScan(broadcast) {
 
       broadcast({ type: 'scan_progress', message: `Scraping ${listingUrls.length} listing pages…` });
 
-      // Scrape all listings (always re-scrape to refresh addresses/images)
+      // Filter out listings that were scraped recently
+      const now = Date.now();
+      const staleUrls = listingUrls.filter(url => {
+        const scrapedAt = db.getListingScrapedAt(url);
+        if (!scrapedAt) return true; // never scraped
+        return (now - new Date(scrapedAt + 'Z').getTime()) > LISTING_CACHE_MS;
+      });
+      const cachedPages = listingUrls.length - staleUrls.length;
+      if (cachedPages > 0) {
+        broadcast({ type: 'scan_progress', message: `  ↳ ${cachedPages} listing page${cachedPages !== 1 ? 's' : ''} still cached (< ${process.env.LISTING_CACHE_HOURS || 24}h), scraping ${staleUrls.length} stale` });
+      }
+
+      // Scrape only stale listings
       let scraped;
       try {
-        scraped = await scrapeListings(listingUrls, imageDomain, (d) => {
+        scraped = await scrapeListings(staleUrls, imageDomain, (d) => {
           if (d.message) broadcast({ type: 'scan_progress', message: d.message });
         }, { zipcode });
       } catch (err) {
@@ -77,6 +93,8 @@ export async function runFullScan(broadcast) {
 
       broadcast({ type: 'scan_progress', message: `Scraped ${scraped.length} listings, processing details…` });
 
+      // Also process cached (non-scraped) listings for image downloads / analysis
+      const allUrls = listingUrls;
       for (let li = 0; li < scraped.length; li++) {
         const listing = scraped[li];
         // Parse dates and upsert listing
@@ -99,7 +117,17 @@ export async function runFullScan(broadcast) {
           broadcast({ type: 'scan_progress', message: `  ↳ ${cachedCount} image${cachedCount !== 1 ? 's' : ''} already cached` });
         }
         for (const remoteUrl of imgs) {
-          if (db.imageExists(listing.url, remoteUrl)) continue;
+          if (db.imageExists(listing.url, remoteUrl)) {
+            // Verify file still on disk and not older than IMAGE_CACHE_DAYS
+            const existingImg = db.getImagesByListing(listing.url).find(i => i.remote_url === remoteUrl);
+            if (existingImg) {
+              const filePath = path.join(db.IMAGES_DIR, existingImg.local_filename);
+              if (fs.existsSync(filePath)) {
+                const fileAge = Date.now() - fs.statSync(filePath).mtimeMs;
+                if (fileAge < IMAGE_CACHE_MS) continue;
+              }
+            }
+          }
           try {
             broadcast({ type: 'scan_progress', message: `  ↳ Downloading image ${newImageCount + 1 + cachedCount}/${imgs.length}…` });
             const localFilename = await downloadImageToLocal(remoteUrl, db.IMAGES_DIR);

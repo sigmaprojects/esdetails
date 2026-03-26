@@ -241,13 +241,6 @@ const DEFAULT_UA = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, l
  * Returns the local filename (hash-based).
  */
 export async function downloadImageToLocal(imageUrl, destDir) {
-  const response = await axios.get(imageUrl, {
-    responseType: 'arraybuffer',
-    timeout: 20000,
-    maxContentLength: 20 * 1024 * 1024,
-    headers: { 'User-Agent': DEFAULT_UA },
-  });
-  const buffer = Buffer.from(response.data);
   const hash = crypto.createHash('sha256').update(imageUrl).digest('hex');
   let ext = '.jpg';
   try {
@@ -256,7 +249,23 @@ export async function downloadImageToLocal(imageUrl, destDir) {
     if (m) ext = '.' + m[1].toLowerCase();
   } catch { /* use default */ }
   const filename = `${hash}${ext}`;
-  fs.writeFileSync(path.join(destDir, filename), buffer);
+  const destPath = path.join(destDir, filename);
+
+  // Skip download if file exists and is younger than IMAGE_CACHE_DAYS
+  if (fs.existsSync(destPath)) {
+    const maxAge = (parseFloat(process.env.IMAGE_CACHE_DAYS) || 7) * 86400_000;
+    const fileAge = Date.now() - fs.statSync(destPath).mtimeMs;
+    if (fileAge < maxAge) return filename;
+  }
+
+  const response = await axios.get(imageUrl, {
+    responseType: 'arraybuffer',
+    timeout: 20000,
+    maxContentLength: 20 * 1024 * 1024,
+    headers: { 'User-Agent': DEFAULT_UA },
+  });
+  const buffer = Buffer.from(response.data);
+  fs.writeFileSync(destPath, buffer);
   return filename;
 }
 

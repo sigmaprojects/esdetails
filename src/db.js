@@ -27,6 +27,12 @@ if (!cols.includes('distance')) {
   db.exec("ALTER TABLE zipcodes ADD COLUMN distance INTEGER DEFAULT 10");
 }
 
+// Migration: add scraped_at to listings
+const listCols = db.prepare("PRAGMA table_info(listings)").all().map(c => c.name);
+if (!listCols.includes('scraped_at')) {
+  db.exec("ALTER TABLE listings ADD COLUMN scraped_at TEXT");
+}
+
 db.exec(`
   CREATE TABLE IF NOT EXISTS listings (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -81,16 +87,19 @@ const stmts = {
   removeZipcode: db.prepare('DELETE FROM zipcodes WHERE id = ?'),
 
   upsertListing: db.prepare(`
-    INSERT INTO listings (url, title, dates, address, start_date, end_date, updated_at)
-    VALUES (@url, @title, @dates, @address, @start_date, @end_date, datetime('now'))
+    INSERT INTO listings (url, title, dates, address, start_date, end_date, updated_at, scraped_at)
+    VALUES (@url, @title, @dates, @address, @start_date, @end_date, datetime('now'), datetime('now'))
     ON CONFLICT(url) DO UPDATE SET
       title = CASE WHEN @title != '' THEN @title ELSE listings.title END,
       dates = CASE WHEN @dates != '' THEN @dates ELSE listings.dates END,
       address = CASE WHEN @address != '' THEN @address ELSE listings.address END,
       start_date = COALESCE(@start_date, listings.start_date),
       end_date = COALESCE(@end_date, listings.end_date),
-      updated_at = datetime('now')
+      updated_at = datetime('now'),
+      scraped_at = datetime('now')
   `),
+
+  getListingScrapedAt: db.prepare('SELECT scraped_at FROM listings WHERE url = ?'),
 
   getListingsCurrent: db.prepare(`
     SELECT * FROM listings
@@ -129,6 +138,7 @@ export function updateZipcode(id, zip, distance) { return stmts.updateZipcode.ru
 export function removeZipcode(id) { return stmts.removeZipcode.run(id); }
 
 export function upsertListing(data) { return stmts.upsertListing.run(data); }
+export function getListingScrapedAt(url) { const r = stmts.getListingScrapedAt.get(url); return r ? r.scraped_at : null; }
 export function getListings(from, to) {
   if (from && to) return stmts.getListingsRange.all({ from, to });
   if (from) return stmts.getListingsRange.all({ from, to: '2099-12-31' });

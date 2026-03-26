@@ -191,9 +191,12 @@ function renderListings() {
           <a href="${esc(l.url)}" target="_blank" onclick="event.stopPropagation()" style="color:var(--accent);font-size:0.8rem;">↗</a>
         </div>
         <div class="listing-body${isOpen ? ' open' : ''}" id="body-${esc(l.id)}">
-          ${l.address
-            ? `<div class="listing-address"><a href="https://www.google.com/maps/search/${encodeURIComponent(l.address)}" target="_blank">📍 ${highlightText(l.address, text)}</a></div>`
-            : '<div class="listing-address" style="color:var(--muted)">Address not yet available</div>'}
+          <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:8px;">
+            ${l.address
+              ? `<div class="listing-address" style="margin-bottom:0"><a href="https://www.google.com/maps/search/${encodeURIComponent(l.address)}" target="_blank">📍 ${highlightText(l.address, text)}</a></div>`
+              : '<div class="listing-address" style="color:var(--muted);margin-bottom:0">Address not yet available</div>'}
+            <a href="${esc(l.url)}" target="_blank" style="color:var(--accent);font-size:0.8rem;text-decoration:none;word-break:break-all;">🔗 ${esc(l.url)}</a>
+          </div>
           <div class="listing-actions">
             <button class="btn-sm" onclick="reanalyze('${esc(l.url)}')">Re-analyze Images</button>
           </div>

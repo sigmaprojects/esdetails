@@ -16,6 +16,8 @@ services:
       # Change to a real hostname/IP if Ollama runs elsewhere.
       - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
       - OLLAMA_MODEL=${OLLAMA_MODEL:-llava}
+      - LISTING_CACHE_HOURS=${LISTING_CACHE_HOURS:-20}
+      - IMAGE_CACHE_DAYS=${IMAGE_CACHE_DAYS:-14}
     extra_hosts:
       # Allows "host.docker.internal" to resolve to the host on Linux
       - "host.docker.internal:host-gateway"
