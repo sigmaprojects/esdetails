@@ -112,9 +112,17 @@ async function loadListings() {
   renderListings();
 }
 
+function highlightText(str, term) {
+  if (!term || !str) return esc(str);
+  const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const re = new RegExp(`(${escaped})`, 'gi');
+  return esc(str).replace(re, '<mark class="highlight">$1</mark>');
+}
+
 function renderListings() {
   const text = (filterText.value || '').toLowerCase();
-  const filtered = text
+  const hasFilter = text.length > 0;
+  const filtered = hasFilter
     ? listings.filter(l =>
         (l.title + l.address + l.dates + l.images.map(i => i.analysis || '').join(' ')).toLowerCase().includes(text)
       )
@@ -122,43 +130,51 @@ function renderListings() {
 
   document.getElementById('listingCount').textContent = `${filtered.length} listing${filtered.length !== 1 ? 's' : ''}`;
 
+  // Remember which rows are currently open
+  const openUrls = new Set();
+  listingsArea.querySelectorAll('.listing-body.open').forEach(el => {
+    const card = el.closest('.listing-card');
+    if (card) openUrls.add(card.dataset.url);
+  });
+
   listingsArea.innerHTML = filtered.map(l => {
     const imgCount = l.images.length;
     const analyzedCount = l.images.filter(i => i.analyzed_at).length;
-    const allObjects = l.images
-      .filter(i => i.analysis && !i.analysis.startsWith('ERROR'))
-      .map(i => i.analysis)
-      .join('\n');
+    const isOpen = hasFilter || openUrls.has(l.url);
     return `
       <div class="listing-card" data-url="${esc(l.url)}">
         <div class="listing-header" onclick="toggleListing(this)">
           <div>
-            <div class="listing-title">${esc(l.title || 'Untitled')}</div>
+            <div class="listing-title">${highlightText(l.title || 'Untitled', text)}</div>
             <div class="listing-meta">${esc(formatDates(l.dates, l.start_date, l.end_date))}</div>
           </div>
-          <div class="listing-meta">${esc(l.address || 'Address pending')}</div>
+          <div class="listing-meta">${highlightText(l.address || 'Address pending', text)}</div>
           <div class="listing-badges">
             <span class="badge badge-img">${imgCount} img${imgCount !== 1 ? 's' : ''}</span>
             ${analyzedCount < imgCount ? `<span class="badge">${analyzedCount}/${imgCount} analyzed</span>` : ''}
           </div>
           <a href="${esc(l.url)}" target="_blank" onclick="event.stopPropagation()" style="color:var(--accent);font-size:0.8rem;">↗</a>
         </div>
-        <div class="listing-body" id="body-${esc(l.id)}">
+        <div class="listing-body${isOpen ? ' open' : ''}" id="body-${esc(l.id)}">
           ${l.address
-            ? `<div class="listing-address"><a href="https://www.google.com/maps/search/${encodeURIComponent(l.address)}" target="_blank">📍 ${esc(l.address)}</a></div>`
+            ? `<div class="listing-address"><a href="https://www.google.com/maps/search/${encodeURIComponent(l.address)}" target="_blank">📍 ${highlightText(l.address, text)}</a></div>`
             : '<div class="listing-address" style="color:var(--muted)">Address not yet available</div>'}
           <div class="listing-actions">
             <button class="btn-sm" onclick="reanalyze('${esc(l.url)}')">Re-analyze Images</button>
           </div>
           <div class="image-grid">
-            ${l.images.map(img => `
-              <div class="image-card">
-                <img src="${esc(img.local_url)}" loading="lazy" onclick="openModal('${esc(img.local_url)}', ${JSON.stringify(img.analysis || '').replace(/'/g, '&#39;')})" />
+            ${l.images.map(img => {
+              const analysisText = img.analysis || '';
+              const isMatch = hasFilter && analysisText.toLowerCase().includes(text);
+              return `
+              <div class="image-card${isMatch ? ' match' : ''}">
+                <img src="${esc(img.local_url)}" loading="lazy" data-analysis="${esc(analysisText)}" onclick="openModal(this)" />
                 ${img.analyzed_at
-                  ? `<div class="analysis">${esc(img.analysis || '')}</div>`
+                  ? `<div class="analysis">${highlightText(analysisText, text)}</div>`
                   : `<div class="pending">Pending analysis…</div>`}
               </div>
-            `).join('')}
+            `;
+            }).join('')}
           </div>
         </div>
       </div>
@@ -245,9 +261,9 @@ async function reanalyze(listingUrl) {
 }
 
 /* ── Modal ─────────────────────────────────────────────────────────────── */
-function openModal(src, analysis) {
-  document.getElementById('modalImg').src = src;
-  document.getElementById('modalAnalysis').textContent = analysis || '';
+function openModal(imgEl) {
+  document.getElementById('modalImg').src = imgEl.src;
+  document.getElementById('modalAnalysis').textContent = imgEl.dataset.analysis || '';
   document.getElementById('modal').classList.add('open');
 }
 
@@ -285,6 +301,10 @@ function connectSSE() {
         if (d.message) {
           const p = document.createElement('p');
           p.textContent = d.message;
+          if (d.message.includes('⚠')) p.style.color = 'var(--red)';
+          else if (d.message.includes('✅')) p.style.color = 'var(--green)';
+          else if (d.message.includes('🤖') || d.message.includes('🔍')) p.style.color = 'var(--accent)';
+          else if (d.message.includes('cached')) p.style.color = '#8b8fa3';
           log.appendChild(p);
           log.scrollTop = log.scrollHeight;
           // Auto-refresh listings when new data is saved
@@ -310,10 +330,11 @@ function connectSSE() {
       case 'image_analyzed':
         if (d.message) {
           const p = document.createElement('p');
-          p.textContent = '  🔍 ' + d.message;
+          p.textContent = d.message;
           log.appendChild(p);
           log.scrollTop = log.scrollHeight;
         }
+        scheduleListingReload();
         break;
       case 'reanalyze_complete':
         loadListings();

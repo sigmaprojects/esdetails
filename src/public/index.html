@@ -52,7 +52,7 @@
   .settings-grid textarea { height: 60px; resize: vertical; font-family: monospace; }
   .settings-grid .full-width { grid-column: 1 / -1; }
 
-  #progress-log { font-size: 0.8rem; color: var(--muted); max-height: 120px; overflow-y: auto; margin-top: 8px; border-top: 1px solid var(--border); padding-top: 6px; }
+  #progress-log { font-size: 0.8rem; color: var(--muted); max-height: 300px; overflow-y: auto; margin-top: 8px; border-top: 1px solid var(--border); padding-top: 6px; }
   #progress-log p { margin: 2px 0; }
 
   .listings-container { padding: 0 16px 30px; }
@@ -78,14 +78,16 @@
   .image-card img { width: 100%; aspect-ratio: 4/3; object-fit: cover; cursor: pointer; display: block; }
   .image-card .analysis { padding: 6px 8px; font-size: 0.78rem; color: var(--muted); max-height: 80px; overflow-y: auto; white-space: pre-wrap; }
   .image-card .pending { padding: 6px 8px; font-size: 0.78rem; color: var(--accent); font-style: italic; }
+  .image-card.match { border: 2px solid var(--accent); box-shadow: 0 0 8px rgba(108,155,255,0.3); }
+  mark.highlight { background: #b8860b; color: #fff; border-radius: 2px; padding: 0 2px; }
 
   /* Modal */
-  .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.85); z-index: 1000; justify-content: center; align-items: center; }
+  .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.85); z-index: 1000; justify-content: center; align-items: center; padding: 20px; }
   .modal-overlay.open { display: flex; }
-  .modal-content { max-width: 90vw; max-height: 90vh; position: relative; }
-  .modal-content img { max-width: 90vw; max-height: 85vh; object-fit: contain; border-radius: 4px; }
-  .modal-close { position: absolute; top: -30px; right: 0; background: none; border: none; color: #fff; font-size: 1.5rem; cursor: pointer; }
-  .modal-analysis { position: absolute; bottom: 0; left: 0; right: 0; background: rgba(0,0,0,0.8); padding: 8px 12px; font-size: 0.82rem; color: var(--text); max-height: 120px; overflow-y: auto; white-space: pre-wrap; border-radius: 0 0 4px 4px; }
+  .modal-content { max-width: 90vw; max-height: 90vh; position: relative; display: flex; flex-direction: column; align-items: center; overflow: hidden; }
+  .modal-content img { max-width: 90vw; max-height: 70vh; object-fit: contain; border-radius: 4px 4px 0 0; }
+  .modal-close { position: absolute; top: -30px; right: 0; background: none; border: none; color: #fff; font-size: 1.5rem; cursor: pointer; z-index: 1; }
+  .modal-analysis { width: 100%; background: rgba(0,0,0,0.8); padding: 10px 14px; font-size: 0.85rem; color: var(--text); max-height: 20vh; overflow-y: auto; white-space: pre-wrap; border-radius: 0 0 4px 4px; line-height: 1.5; }
 </style>
 </head>
 <body>

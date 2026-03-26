@@ -69,7 +69,7 @@ export async function runFullScan(broadcast) {
       try {
         scraped = await scrapeListings(listingUrls, imageDomain, (d) => {
           if (d.message) broadcast({ type: 'scan_progress', message: d.message });
-        });
+        }, { zipcode });
       } catch (err) {
         broadcast({ type: 'scan_progress', message: `Scraping error for ${zipcode}: ${err.message}` });
         continue;
@@ -93,19 +93,27 @@ export async function runFullScan(broadcast) {
 
         // Download new images to local storage
         const imgs = maxImages > 0 ? (listing.images || []).slice(0, maxImages) : (listing.images || []);
+        const cachedCount = imgs.filter(url => db.imageExists(listing.url, url)).length;
         let newImageCount = 0;
+        if (cachedCount > 0) {
+          broadcast({ type: 'scan_progress', message: `  ↳ ${cachedCount} image${cachedCount !== 1 ? 's' : ''} already cached` });
+        }
         for (const remoteUrl of imgs) {
           if (db.imageExists(listing.url, remoteUrl)) continue;
           try {
+            broadcast({ type: 'scan_progress', message: `  ↳ Downloading image ${newImageCount + 1 + cachedCount}/${imgs.length}…` });
             const localFilename = await downloadImageToLocal(remoteUrl, db.IMAGES_DIR);
             db.addImage({ listing_url: listing.url, remote_url: remoteUrl, local_filename: localFilename });
             newImageCount++;
           } catch (err) {
             console.error(`[Scanner] Download failed ${remoteUrl}: ${err.message}`);
+            broadcast({ type: 'scan_progress', message: `  ↳ ⚠ Download failed: ${err.message}` });
           }
         }
         if (newImageCount) {
-          broadcast({ type: 'scan_progress', message: `  ↳ Downloaded ${newImageCount} new image${newImageCount !== 1 ? 's' : ''}` });
+          broadcast({ type: 'scan_progress', message: `  ↳ Downloaded ${newImageCount} new image${newImageCount !== 1 ? 's' : ''}, ${cachedCount} cached` });
+        } else if (imgs.length > 0 && cachedCount === imgs.length) {
+          // all cached, already reported above
         }
 
         // Analyze unanalyzed images
@@ -143,6 +151,10 @@ async function analyzeUnanalyzed(listingUrl, settings, broadcast) {
   const unanalyzed = db.getUnanalyzedImages(listingUrl);
   if (!unanalyzed.length) return;
 
+  const apiType = settings.api_type || 'ollama';
+  const modelName = ollamaModel;
+  broadcast({ type: 'scan_progress', message: `  🤖 Sending ${unanalyzed.length} image${unanalyzed.length !== 1 ? 's' : ''} to AI (${apiType}/${modelName})…` });
+
   const concurrency = Math.max(1, parseInt(settings.ai_concurrency, 10) || 1);
   let cursor = 0;
 
@@ -151,18 +163,22 @@ async function analyzeUnanalyzed(listingUrl, settings, broadcast) {
       const img = unanalyzed[cursor++];
       try {
         const localPath = path.join(db.IMAGES_DIR, img.local_filename);
+        broadcast({ type: 'scan_progress', message: `  🔍 AI analyzing image ${cursor}/${unanalyzed.length}…` });
         const analysis = await analyzeLocalImage(localPath, settings);
         db.updateAnalysis(img.id, analysis);
+        // Count items in the analysis
+        const itemCount = analysis.split('\n').filter(l => l.trim()).length;
         broadcast({
           type: 'image_analyzed',
           listingUrl,
           imageId: img.id,
           analysis,
-          message: `Analyzed image ${cursor}/${unanalyzed.length}`,
+          message: `  ✅ AI returned ${itemCount} item${itemCount !== 1 ? 's' : ''} (image ${cursor}/${unanalyzed.length})`,
         });
       } catch (err) {
         console.error(`[Scanner] Analysis failed for image ${img.id}: ${err.message}`);
         db.updateAnalysis(img.id, `ERROR: ${err.message}`);
+        broadcast({ type: 'scan_progress', message: `  ⚠ AI failed for image ${cursor}/${unanalyzed.length}: ${err.message}` });
       }
     }
   }

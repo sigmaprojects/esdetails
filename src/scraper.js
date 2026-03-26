@@ -283,22 +283,24 @@ async function configureSearchForm(page, distance, progressCallback) {
  * Scrape each listing URL for title, dates, address, and images.
  * Returns an array of listing objects.
  */
-export async function scrapeListings(listingUrls, imageDomain, progressCallback) {
+export async function scrapeListings(listingUrls, imageDomain, progressCallback, { zipcode } = {}) {
   const browser = await chromium.launch({
     headless: true,
     args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
   });
 
   const results = [];
+  const zipLabel = zipcode ? `[${zipcode}] ` : '';
 
   try {
     for (let i = 0; i < listingUrls.length; i++) {
       const url = listingUrls[i];
+      const shortUrl = url.split('/').slice(-2).join('/');
       progressCallback?.({
         current: i + 1,
         total: listingUrls.length,
         url,
-        message: `Scraping listing ${i + 1}/${listingUrls.length}`,
+        message: `${zipLabel}Scraping listing ${i + 1}/${listingUrls.length}: ${shortUrl}`,
       });
 
       try {
@@ -306,7 +308,8 @@ export async function scrapeListings(listingUrls, imageDomain, progressCallback)
         results.push(listing);
         progressCallback?.({
           type: 'listing_scraped',
-          listing
+          listing,
+          message: `${zipLabel}Scraped: ${listing.title || shortUrl} (${listing.images.length} images)`,
         });
       } catch (err) {
         const errorListing = {
@@ -320,7 +323,8 @@ export async function scrapeListings(listingUrls, imageDomain, progressCallback)
         results.push(errorListing);
         progressCallback?.({
           type: 'listing_scraped',
-          listing: errorListing
+          listing: errorListing,
+          message: `${zipLabel}Scrape failed for ${shortUrl}: ${err.message}`,
         });
       }
 
