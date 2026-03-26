@@ -1,13 +1,13 @@
 import { chromium } from 'playwright';
 
-const DELAY_MS = 1200;
+const DELAY_MS = 600;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /**
  * Scroll the page progressively until all lazy-loaded content has appeared.
  * Keeps scrolling until the scroll height stops growing for several consecutive checks.
  */
-async function scrollToLoadAll(page, { maxScrolls = 80, scrollPause = 1200 } = {}) {
+async function scrollToLoadAll(page, { maxScrolls = 80, scrollPause = 600 } = {}) {
   let previousHeight = 0;
   let stableCount = 0;
   const stableThreshold = 3; // stop after height unchanged N times in a row
