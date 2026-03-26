@@ -3,6 +3,10 @@ let listings = [];
 let settings = {};
 let zipcodes = [];
 let scanning = false;
+let sortCol = null;   // 'title' | 'dates' | 'address' | null
+let sortDir = 1;      // 1 = asc, -1 = desc
+let zipDistances = {};  // { zip: miles } cached from backend
+let zipDistancesFor = ''; // the ref zip they were fetched for
 
 const filterFrom = document.getElementById('filterFrom');
 const filterTo   = document.getElementById('filterTo');
@@ -122,11 +126,44 @@ function highlightText(str, term) {
 function renderListings() {
   const text = (filterText.value || '').toLowerCase();
   const hasFilter = text.length > 0;
-  const filtered = hasFilter
+  let filtered = hasFilter
     ? listings.filter(l =>
         (l.title + l.address + l.dates + l.images.map(i => i.analysis || '').join(' ')).toLowerCase().includes(text)
       )
-    : listings;
+    : [...listings];
+
+  // Sort
+  if (sortCol) {
+    filtered.sort((a, b) => {
+      let av, bv;
+      if (sortCol === 'title') {
+        av = (a.title || '').toLowerCase();
+        bv = (b.title || '').toLowerCase();
+      } else if (sortCol === 'dates') {
+        av = a.start_date || a.dates || '';
+        bv = b.start_date || b.dates || '';
+      } else if (sortCol === 'address') {
+        if (Object.keys(zipDistances).length > 0) {
+          const aZip = extractZip(a.address);
+          const bZip = extractZip(b.address);
+          const aDist = zipDistances[aZip] ?? 99999;
+          const bDist = zipDistances[bZip] ?? 99999;
+          if (aDist !== bDist) return (aDist - bDist) * sortDir;
+        }
+        av = (a.address || '').toLowerCase();
+        bv = (b.address || '').toLowerCase();
+      }
+      if (av < bv) return -1 * sortDir;
+      if (av > bv) return 1 * sortDir;
+      return 0;
+    });
+  }
+
+  // Update sort arrows
+  ['title', 'dates', 'address'].forEach(c => {
+    const el = document.getElementById('sort-' + c);
+    if (el) el.textContent = sortCol === c ? (sortDir === 1 ? '▲' : '▼') : '';
+  });
 
   document.getElementById('listingCount').textContent = `${filtered.length} listing${filtered.length !== 1 ? 's' : ''}`;
 
@@ -144,10 +181,8 @@ function renderListings() {
     return `
       <div class="listing-card" data-url="${esc(l.url)}">
         <div class="listing-header" onclick="toggleListing(this)">
-          <div>
-            <div class="listing-title">${highlightText(l.title || 'Untitled', text)}</div>
-            <div class="listing-meta">${esc(formatDates(l.dates, l.start_date, l.end_date))}</div>
-          </div>
+          <div class="listing-title">${highlightText(l.title || 'Untitled', text)}</div>
+          <div class="listing-meta">${esc(formatDates(l.dates, l.start_date, l.end_date))}</div>
           <div class="listing-meta">${highlightText(l.address || 'Address pending', text)}</div>
           <div class="listing-badges">
             <span class="badge badge-img">${imgCount} img${imgCount !== 1 ? 's' : ''}</span>
@@ -189,6 +224,33 @@ function toggleListing(headerEl) {
 
 function applyTextFilter() {
   renderListings();
+}
+
+async function toggleSort(col) {
+  if (sortCol === col) {
+    sortDir *= -1;
+  } else {
+    sortCol = col;
+    sortDir = 1;
+  }
+  // Fetch real geographic distances when sorting by address with a zip
+  if (col === 'address') {
+    const zipVal = (document.getElementById('filterZip').value || '').trim();
+    if (zipVal && zipVal !== zipDistancesFor) {
+      zipDistances = await api('/api/zip-distances/' + encodeURIComponent(zipVal));
+      zipDistancesFor = zipVal;
+    } else if (!zipVal) {
+      zipDistances = {};
+      zipDistancesFor = '';
+    }
+  }
+  renderListings();
+}
+
+function extractZip(address) {
+  if (!address) return '';
+  const m = address.match(/(\d{5})(?:-\d{4})?\s*$/);
+  return m ? m[1] : '';
 }
 
 function resetDates() {

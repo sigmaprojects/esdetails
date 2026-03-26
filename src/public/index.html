@@ -39,6 +39,8 @@
   .filter-bar label { font-size: 0.85rem; color: var(--muted); }
   .filter-bar input[type="date"] { padding: 4px 8px; background: var(--surface); border: 1px solid var(--border); border-radius: 4px; color: var(--text); font-size: 0.85rem; }
   .filter-bar input[type="text"] { padding: 4px 8px; background: var(--surface); border: 1px solid var(--border); border-radius: 4px; color: var(--text); font-size: 0.85rem; flex: 1; min-width: 150px; }
+  .filter-bar input[type="number"] { padding: 4px 8px; background: var(--surface); border: 1px solid var(--border); border-radius: 4px; color: var(--text); font-size: 0.85rem; -moz-appearance: textfield; }
+  .filter-bar input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; }
 
   button, .btn { padding: 6px 14px; border: none; border-radius: 4px; background: var(--accent2); color: #fff; cursor: pointer; font-size: 0.85rem; }
   button:hover { opacity: 0.85; }
@@ -59,7 +61,11 @@
   .listing-count { font-size: 0.85rem; color: var(--muted); margin-bottom: 8px; }
 
   .listing-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 8px; overflow: hidden; }
-  .listing-header { padding: 10px 14px; cursor: pointer; display: grid; grid-template-columns: 1fr auto auto auto; gap: 10px; align-items: center; }
+  .listing-col-headers { display: grid; grid-template-columns: 2fr 1fr 1.5fr auto auto; gap: 10px; padding: 6px 14px; font-size: 0.78rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; border-bottom: 1px solid var(--border); margin-bottom: 4px; }
+  .col-sort { cursor: pointer; user-select: none; display: flex; align-items: center; gap: 4px; }
+  .col-sort:hover { color: var(--text); }
+  .sort-arrow { font-size: 0.7rem; }
+  .listing-header { padding: 10px 14px; cursor: pointer; display: grid; grid-template-columns: 2fr 1fr 1.5fr auto auto; gap: 10px; align-items: center; }
   .listing-header:hover { background: rgba(255,255,255,0.03); }
   .listing-title { font-weight: 600; font-size: 0.95rem; }
   .listing-meta { font-size: 0.8rem; color: var(--muted); }
@@ -140,23 +146,31 @@
   </details>
 </div>
 
-<!-- Filter bar -->
-<div class="filter-bar">
-  <label>From:</label><input type="date" id="filterFrom" />
-  <label>To:</label><input type="date" id="filterTo" />
-  <button class="btn-outline btn-sm" onclick="resetDates()">Reset</button>
-  <input type="text" id="filterText" placeholder="Search listings…" oninput="applyTextFilter()" />
-</div>
-
 <!-- Progress log -->
 <div class="panel" id="progressPanel" style="display:none;">
   <h2>Scan Progress</h2>
   <div id="progress-log"></div>
 </div>
 
+<!-- Filter bar -->
+<div class="filter-bar">
+  <label>From:</label><input type="date" id="filterFrom" />
+  <label>To:</label><input type="date" id="filterTo" />
+  <button class="btn-outline btn-sm" onclick="resetDates()">Reset</button>
+  <input type="text" id="filterText" placeholder="Search listings…" oninput="applyTextFilter()" />
+  <input type="number" id="filterZip" placeholder="Zip" maxlength="5" style="width:80px" />
+</div>
+
 <!-- Listings -->
 <div class="listings-container">
   <div class="listing-count" id="listingCount"></div>
+  <div class="listing-col-headers">
+    <span class="col-sort" data-col="title" onclick="toggleSort('title')">Title <span class="sort-arrow" id="sort-title"></span></span>
+    <span class="col-sort" data-col="dates" onclick="toggleSort('dates')">Dates <span class="sort-arrow" id="sort-dates"></span></span>
+    <span class="col-sort" data-col="address" onclick="toggleSort('address')">Address <span class="sort-arrow" id="sort-address"></span></span>
+    <span></span>
+    <span></span>
+  </div>
   <div id="listingsArea"></div>
 </div>
 

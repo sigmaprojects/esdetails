@@ -1,6 +1,7 @@
 import express from 'express';
 import { fileURLToPath } from 'url';
 import path from 'path';
+import zipcodes from 'zipcodes';
 
 import * as db from './db.js';
 import { startScheduler, runFullScan, reanalyzeListing, isScanRunning } from './scanner.js';
@@ -84,6 +85,32 @@ app.get('/api/listings', (req, res) => {
     })),
   }));
   res.json(result);
+});
+
+// ── Zip distances ──────────────────────────────────────────────────────────
+app.get('/api/zip-distances/:zip', (req, res) => {
+  const refZip = req.params.zip;
+  const refInfo = zipcodes.lookup(refZip);
+  if (!refInfo) return res.json({});
+
+  const allListings = db.getListings(null, null);
+  const uniqueZips = new Set();
+  const zipRegex = /(\d{5})(?:-\d{4})?\s*$/;
+  for (const l of allListings) {
+    if (l.address) {
+      const m = l.address.match(zipRegex);
+      if (m) uniqueZips.add(m[1]);
+    }
+  }
+
+  const distances = {};
+  for (const z of uniqueZips) {
+    const info = zipcodes.lookup(z);
+    if (info) {
+      distances[z] = zipcodes.distance(refZip, z);
+    }
+  }
+  res.json(distances);
 });
 
 // ── Scan ───────────────────────────────────────────────────────────────────
