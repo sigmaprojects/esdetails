@@ -1,5 +1,6 @@
 import axios from 'axios';
 import sharp from 'sharp';
+import { getCachedImage, setCachedImage } from './cache.js';
 
 const DEFAULT_PROMPT =
   'List every item in this image. For each item, provide only the name and the material/color.\n' +
@@ -11,17 +12,24 @@ const DEFAULT_PROMPT =
 
 /** Download an image URL and return it as a base64 string, optionally resized. */
 async function fetchBase64(imageUrl, scale = 1) {
-  const response = await axios.get(imageUrl, {
-    responseType: 'arraybuffer',
-    timeout: 20000,
-    maxContentLength: 20 * 1024 * 1024, // 20 MB cap
-    headers: {
-      'User-Agent':
-        'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
-    },
-  });
+  // Check cache first (caches the raw downloaded buffer before resize)
+  let buffer = getCachedImage(imageUrl);
 
-  let buffer = Buffer.from(response.data);
+  if (!buffer) {
+    const response = await axios.get(imageUrl, {
+      responseType: 'arraybuffer',
+      timeout: 20000,
+      maxContentLength: 20 * 1024 * 1024, // 20 MB cap
+      headers: {
+        'User-Agent':
+          'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+      },
+    });
+    buffer = Buffer.from(response.data);
+    setCachedImage(imageUrl, buffer);
+  } else {
+    console.log(`[AI] Image cache hit: ${imageUrl.slice(0, 80)}`);
+  }
 
   if (scale > 0 && scale < 1) {
     try {

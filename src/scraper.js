@@ -1,4 +1,5 @@
 import { chromium } from 'playwright';
+import { getCachedPage, setCachedPage } from './cache.js';
 
 const DELAY_MS = 1200;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -330,6 +331,13 @@ export async function scrapeListings(listingUrls, imageDomain, progressCallback)
 }
 
 async function scrapeListing(browser, url, imageDomain) {
+  // Check page cache first
+  const cached = getCachedPage(url);
+  if (cached) {
+    console.log(`[Scraper] Page cache hit: ${url}`);
+    return cached;
+  }
+
   const page = await browser.newPage();
   const networkImages = new Set();
 
@@ -471,11 +479,10 @@ async function scrapeListing(browser, url, imageDomain) {
     // Merge network-captured images (deduplicated)
     const allImages = [...new Set([...images, ...networkImages])].filter((img) => isGalleryImage(img, imageDomain));
 
-    console.log(`[Scraper] Extracted details for: ${url}`);
-    console.log(`  -> Title:  "${title}"`);
-    console.log(`  -> Images: ${allImages.length}`);
-
-    return { url, title, dates, address, images: allImages };
+    const result = { url, title, dates, address, images: allImages };
+    setCachedPage(url, result);
+    console.log(`[Scraper] Cached and extracted: ${url} (${allImages.length} images)`);
+    return result;
   } finally {
     await page.close();
   }
