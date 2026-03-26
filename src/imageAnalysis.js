@@ -1,6 +1,8 @@
 import axios from 'axios';
 import sharp from 'sharp';
-import { getCachedImage, setCachedImage } from './cache.js';
+import fs from 'fs';
+import path from 'path';
+import crypto from 'crypto';
 
 const DEFAULT_PROMPT =
   'List every item in this image. For each item, provide only the name and the material/color.\n' +
@@ -12,24 +14,16 @@ const DEFAULT_PROMPT =
 
 /** Download an image URL and return it as a base64 string, optionally resized. */
 async function fetchBase64(imageUrl, scale = 1) {
-  // Check cache first (caches the raw downloaded buffer before resize)
-  let buffer = getCachedImage(imageUrl);
-
-  if (!buffer) {
-    const response = await axios.get(imageUrl, {
-      responseType: 'arraybuffer',
-      timeout: 20000,
-      maxContentLength: 20 * 1024 * 1024, // 20 MB cap
-      headers: {
-        'User-Agent':
-          'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
-      },
-    });
-    buffer = Buffer.from(response.data);
-    setCachedImage(imageUrl, buffer);
-  } else {
-    console.log(`[AI] Image cache hit: ${imageUrl.slice(0, 80)}`);
-  }
+  const response = await axios.get(imageUrl, {
+    responseType: 'arraybuffer',
+    timeout: 20000,
+    maxContentLength: 20 * 1024 * 1024,
+    headers: {
+      'User-Agent':
+        'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+    },
+  });
+  let buffer = Buffer.from(response.data);
 
   if (scale > 0 && scale < 1) {
     try {
@@ -236,4 +230,59 @@ export async function analyzeImages(listings, config, progressCallback) {
     results.push(await analyzeListing(listing, config, progressCallback, counter));
   }
   return results;
+}
+
+// ── New functions for persistent / local-image architecture ────────────────
+
+const DEFAULT_UA = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36';
+
+/**
+ * Download a remote image and save it to destDir.
+ * Returns the local filename (hash-based).
+ */
+export async function downloadImageToLocal(imageUrl, destDir) {
+  const response = await axios.get(imageUrl, {
+    responseType: 'arraybuffer',
+    timeout: 20000,
+    maxContentLength: 20 * 1024 * 1024,
+    headers: { 'User-Agent': DEFAULT_UA },
+  });
+  const buffer = Buffer.from(response.data);
+  const hash = crypto.createHash('sha256').update(imageUrl).digest('hex');
+  let ext = '.jpg';
+  try {
+    const urlPath = new URL(imageUrl).pathname;
+    const m = urlPath.match(/\.(jpg|jpeg|png|webp|gif)/i);
+    if (m) ext = '.' + m[1].toLowerCase();
+  } catch { /* use default */ }
+  const filename = `${hash}${ext}`;
+  fs.writeFileSync(path.join(destDir, filename), buffer);
+  return filename;
+}
+
+/**
+ * Analyze a locally-stored image file via the configured AI.
+ * Returns the raw response text.
+ */
+export async function analyzeLocalImage(localPath, settings) {
+  const scale = parseFloat(settings.image_scale) || 0.5;
+  let buffer = fs.readFileSync(localPath);
+
+  if (scale > 0 && scale < 1) {
+    try {
+      const meta = await sharp(buffer).metadata();
+      const newWidth = Math.round(meta.width * scale);
+      buffer = await sharp(buffer).resize({ width: newWidth, withoutEnlargement: true }).toBuffer();
+    } catch { /* send original */ }
+  }
+
+  const base64 = buffer.toString('base64');
+  const prompt = settings.ai_prompt || DEFAULT_PROMPT;
+  const ollamaUrl = settings.ollama_url;
+  const model = settings.ollama_model;
+
+  if (settings.api_type === 'openai') {
+    return callOpenAICompat(ollamaUrl, model, base64, settings.api_key, prompt);
+  }
+  return callOllama(ollamaUrl, model, base64, prompt);
 }

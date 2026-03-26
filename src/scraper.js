@@ -1,5 +1,4 @@
 import { chromium } from 'playwright';
-import { getCachedPage, setCachedPage } from './cache.js';
 
 const DELAY_MS = 1200;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -174,7 +173,11 @@ export async function findListings(zipCode, searchDistance, progressCallback) {
         ...new Set(
           [...document.querySelectorAll('a[href]')]
             .map((a) => a.href)
-            .filter((href) => href.startsWith(prefix) && href.length > prefix.length)
+            .filter((href) => {
+              if (!href.startsWith(prefix) || href.length <= prefix.length) return false;
+              // Only keep actual listing URLs (end with /numericId)
+              return /\/\d+$/.test(href.replace(/\/+$/, ''));
+            })
         ),
       ];
     }, filterPrefix);
@@ -331,13 +334,6 @@ export async function scrapeListings(listingUrls, imageDomain, progressCallback)
 }
 
 async function scrapeListing(browser, url, imageDomain) {
-  // Check page cache first
-  const cached = getCachedPage(url);
-  if (cached) {
-    console.log(`[Scraper] Page cache hit: ${url}`);
-    return cached;
-  }
-
   const page = await browser.newPage();
   const networkImages = new Set();
 
@@ -480,8 +476,7 @@ async function scrapeListing(browser, url, imageDomain) {
     const allImages = [...new Set([...images, ...networkImages])].filter((img) => isGalleryImage(img, imageDomain));
 
     const result = { url, title, dates, address, images: allImages };
-    setCachedPage(url, result);
-    console.log(`[Scraper] Cached and extracted: ${url} (${allImages.length} images)`);
+    console.log(`[Scraper] Extracted: ${url} (${allImages.length} images)`);
     return result;
   } finally {
     await page.close();

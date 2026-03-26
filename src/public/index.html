@@ -1,676 +1,169 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Estate Sale Scanner</title>
-  <style>
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Estate Sale Scanner</title>
+<style>
+  :root { --bg: #0f1117; --surface: #1a1d27; --border: #2a2d3a; --text: #e4e6eb; --muted: #8b8fa3; --accent: #6c9bff; --accent2: #4a7aff; --green: #4caf50; --red: #e57373; --radius: 8px; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
 
-    :root {
-      --bg: #f5f5f0;
-      --surface: #ffffff;
-      --border: #ddd;
-      --primary: #2563eb;
-      --primary-hover: #1d4ed8;
-      --success: #16a34a;
-      --warning: #d97706;
-      --danger: #dc2626;
-      --text: #1f2937;
-      --muted: #6b7280;
-      --radius: 8px;
-      --shadow: 0 1px 4px rgba(0,0,0,.08);
-    }
+  header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 12px 20px; display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+  header h1 { font-size: 1.3rem; font-weight: 600; white-space: nowrap; }
+  .scan-indicator { font-size: 0.85rem; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+  .scan-indicator .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); }
+  .scan-indicator .dot.running { background: var(--accent); animation: pulse 1s infinite; }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+  .header-actions { margin-left: auto; display: flex; gap: 8px; }
 
-    body {
-      font-family: system-ui, -apple-system, sans-serif;
-      background: var(--bg);
-      color: var(--text);
-      min-height: 100vh;
-    }
+  .panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); margin: 12px 16px; padding: 16px; }
+  .panel h2 { font-size: 1rem; font-weight: 600; margin-bottom: 10px; }
+  .panel summary { cursor: pointer; font-weight: 600; font-size: 1rem; }
 
-    header {
-      background: var(--surface);
-      border-bottom: 1px solid var(--border);
-      padding: 14px 24px;
-    }
-    header h1 { font-size: 1.4rem; font-weight: 700; color: var(--primary); }
-    header p  { font-size: .85rem; color: var(--muted); margin-top: 2px; }
+  .zip-chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .zip-chip { background: var(--border); border-radius: 20px; padding: 4px 10px; font-size: 0.85rem; display: flex; align-items: center; gap: 6px; }
+  .zip-chip button { background: none; border: none; color: var(--red); cursor: pointer; font-size: 1rem; line-height: 1; padding: 0; }
+  .zip-add { display: flex; gap: 4px; }
+  .zip-add input { width: 70px; padding: 4px 8px; border-radius: 4px; border: 1px solid var(--border); background: var(--bg); color: var(--text); font-size: 0.85rem; }
+  .zip-add button { padding: 4px 10px; }
+  .zip-table { width: 100%; border-collapse: collapse; }
+  .zip-table th, .zip-table td { text-align: left; padding: 4px 8px; font-size: 0.85rem; }
+  .zip-table th { color: var(--muted); font-weight: 500; border-bottom: 1px solid var(--border); }
+  .zip-table td { border-bottom: 1px solid rgba(255,255,255,0.04); }
+  .zip-table input[type="text"] { width: 70px; padding: 3px 6px; background: var(--bg); border: 1px solid var(--border); border-radius: 4px; color: var(--text); font-size: 0.85rem; text-align: center; }
+  .zip-table input[type="range"] { width: 100px; vertical-align: middle; }
+  .zip-table .dist-val { display: inline-block; width: 35px; text-align: right; font-size: 0.8rem; color: var(--muted); }
 
-    .container { max-width: 1100px; margin: 0 auto; padding: 24px 20px; }
+  .filter-bar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin: 12px 16px; }
+  .filter-bar label { font-size: 0.85rem; color: var(--muted); }
+  .filter-bar input[type="date"] { padding: 4px 8px; background: var(--surface); border: 1px solid var(--border); border-radius: 4px; color: var(--text); font-size: 0.85rem; }
+  .filter-bar input[type="text"] { padding: 4px 8px; background: var(--surface); border: 1px solid var(--border); border-radius: 4px; color: var(--text); font-size: 0.85rem; flex: 1; min-width: 150px; }
 
-    /* ── Cards ── */
-    .card {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      box-shadow: var(--shadow);
-      padding: 20px 24px;
-      margin-bottom: 20px;
-    }
-    .card h2 {
-      font-size: 1rem;
-      font-weight: 600;
-      margin-bottom: 16px;
-      padding-bottom: 10px;
-      border-bottom: 1px solid var(--border);
-    }
+  button, .btn { padding: 6px 14px; border: none; border-radius: 4px; background: var(--accent2); color: #fff; cursor: pointer; font-size: 0.85rem; }
+  button:hover { opacity: 0.85; }
+  button:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn-sm { padding: 3px 8px; font-size: 0.78rem; }
+  .btn-outline { background: transparent; border: 1px solid var(--border); color: var(--text); }
 
-    /* ── Form ── */
-    .form-row { display: grid; gap: 14px; }
-    .form-row.two-col { grid-template-columns: 1fr 1fr; }
-    @media (max-width: 600px) { .form-row.two-col { grid-template-columns: 1fr; } }
+  .settings-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
+  .settings-grid label { font-size: 0.8rem; color: var(--muted); display: block; }
+  .settings-grid input, .settings-grid select, .settings-grid textarea { width: 100%; padding: 5px 8px; background: var(--bg); border: 1px solid var(--border); border-radius: 4px; color: var(--text); font-size: 0.85rem; margin-top: 2px; }
+  .settings-grid textarea { height: 60px; resize: vertical; font-family: monospace; }
+  .settings-grid .full-width { grid-column: 1 / -1; }
 
-    label {
-      display: block;
-      font-size: .82rem;
-      font-weight: 600;
-      margin-bottom: 4px;
-      color: var(--text);
-    }
-    label small { font-weight: 400; color: var(--muted); font-size: .78rem; display: block; margin-top: 2px; }
+  #progress-log { font-size: 0.8rem; color: var(--muted); max-height: 120px; overflow-y: auto; margin-top: 8px; border-top: 1px solid var(--border); padding-top: 6px; }
+  #progress-log p { margin: 2px 0; }
 
-    input[type="url"], input[type="text"], input[type="password"],
-    input[type="number"], select {
-      width: 100%;
-      padding: 8px 10px;
-      border: 1px solid var(--border);
-      border-radius: 5px;
-      font-size: .9rem;
-      background: #fafafa;
-      transition: border-color .15s;
-    }
-    input:focus, select:focus { outline: none; border-color: var(--primary); background: #fff; }
+  .listings-container { padding: 0 16px 30px; }
+  .listing-count { font-size: 0.85rem; color: var(--muted); margin-bottom: 8px; }
 
-    details { margin-top: 12px; }
-    summary {
-      cursor: pointer;
-      font-size: .85rem;
-      font-weight: 600;
-      color: var(--primary);
-      user-select: none;
-      padding: 6px 0;
-    }
-    details[open] summary { margin-bottom: 12px; }
-    .details-grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 12px;
-    }
-    @media (max-width: 600px) { .details-grid { grid-template-columns: 1fr; } }
+  .listing-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 8px; overflow: hidden; }
+  .listing-header { padding: 10px 14px; cursor: pointer; display: grid; grid-template-columns: 1fr auto auto auto; gap: 10px; align-items: center; }
+  .listing-header:hover { background: rgba(255,255,255,0.03); }
+  .listing-title { font-weight: 600; font-size: 0.95rem; }
+  .listing-meta { font-size: 0.8rem; color: var(--muted); }
+  .listing-badges { display: flex; gap: 6px; }
+  .badge { font-size: 0.75rem; padding: 2px 8px; border-radius: 10px; background: var(--border); }
+  .badge-img { background: #1a3a5c; color: var(--accent); }
 
-    .btn {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      padding: 9px 20px;
-      border: none;
-      border-radius: 5px;
-      font-size: .9rem;
-      font-weight: 600;
-      cursor: pointer;
-      transition: background .15s, opacity .15s;
-    }
-    .btn-primary { background: var(--primary); color: #fff; }
-    .btn-primary:hover { background: var(--primary-hover); }
-    .btn-primary:disabled { opacity: .5; cursor: default; }
-    .btn-outline {
-      background: transparent;
-      color: var(--primary);
-      border: 1px solid var(--primary);
-      font-size: .82rem;
-      padding: 6px 14px;
-    }
-    .btn-outline:hover { background: #eff6ff; }
-    .form-footer {
-      margin-top: 16px;
-      display: flex;
-      align-items: center;
-      gap: 12px;
-    }
+  .listing-body { display: none; padding: 0 14px 14px; border-top: 1px solid var(--border); }
+  .listing-body.open { display: block; }
+  .listing-address { font-size: 0.85rem; margin-bottom: 8px; }
+  .listing-address a { color: var(--accent); text-decoration: none; }
+  .listing-actions { margin-bottom: 10px; display: flex; gap: 6px; }
 
-    /* ── Phases ── */
-    .phases {
-      display: flex;
-      gap: 0;
-      margin-bottom: 16px;
-    }
-    .phase-step {
-      flex: 1;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      position: relative;
-      font-size: .78rem;
-      color: var(--muted);
-    }
-    .phase-step::after {
-      content: '';
-      position: absolute;
-      top: 14px;
-      left: 50%;
-      width: 100%;
-      height: 2px;
-      background: var(--border);
-      z-index: 0;
-    }
-    .phase-step:last-child::after { display: none; }
-    .phase-dot {
-      width: 28px;
-      height: 28px;
-      border-radius: 50%;
-      background: var(--border);
-      color: var(--muted);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-weight: 700;
-      font-size: .8rem;
-      position: relative;
-      z-index: 1;
-      transition: background .3s, color .3s;
-    }
-    .phase-step.active .phase-dot   { background: var(--primary); color: #fff; }
-    .phase-step.done .phase-dot     { background: var(--success); color: #fff; }
-    .phase-step.active .phase-label { color: var(--primary); font-weight: 600; }
-    .phase-step.done .phase-label   { color: var(--success); }
-    .phase-label { margin-top: 6px; text-align: center; }
+  .image-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 8px; }
+  .image-card { background: var(--bg); border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
+  .image-card img { width: 100%; aspect-ratio: 4/3; object-fit: cover; cursor: pointer; display: block; }
+  .image-card .analysis { padding: 6px 8px; font-size: 0.78rem; color: var(--muted); max-height: 80px; overflow-y: auto; white-space: pre-wrap; }
+  .image-card .pending { padding: 6px 8px; font-size: 0.78rem; color: var(--accent); font-style: italic; }
 
-    /* ── Progress bar ── */
-    .progress-track {
-      background: #e5e7eb;
-      border-radius: 99px;
-      height: 8px;
-      overflow: hidden;
-      margin-bottom: 10px;
-    }
-    .progress-fill {
-      height: 100%;
-      background: var(--primary);
-      border-radius: 99px;
-      width: 0%;
-      transition: width .4s ease;
-    }
-
-    /* ── Log ── */
-    .log-box {
-      background: #f8f8f8;
-      border: 1px solid var(--border);
-      border-radius: 5px;
-      padding: 10px 12px;
-      height: 130px;
-      overflow-y: auto;
-      font-size: .78rem;
-      font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
-      color: var(--text);
-    }
-    .log-line { margin-bottom: 2px; }
-    .log-line.warn { color: var(--warning); }
-    .log-line.err  { color: var(--danger); }
-    .log-line.ok   { color: var(--success); }
-
-    /* ── Results ── */
-    .results-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 16px;
-    }
-    .results-header h2 { font-size: 1rem; font-weight: 600; }
-
-    /* Summary bar */
-    .summary-bar {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-      gap: 10px;
-      margin-bottom: 16px;
-    }
-    .stat-box {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      padding: 12px 16px;
-      text-align: center;
-    }
-    .stat-box .val { font-size: 1.6rem; font-weight: 700; color: var(--primary); }
-    .stat-box .lbl { font-size: .75rem; color: var(--muted); margin-top: 2px; }
-
-    /* Table */
-    .table-wrap {
-      overflow-x: auto;
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      background: var(--surface);
-    }
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      font-size: .83rem;
-    }
-    thead th {
-      background: #f9fafb;
-      padding: 10px 12px;
-      text-align: left;
-      font-weight: 600;
-      font-size: .78rem;
-      color: var(--muted);
-      text-transform: uppercase;
-      letter-spacing: .04em;
-      border-bottom: 1px solid var(--border);
-      white-space: nowrap;
-    }
-    tbody tr:not(:last-child) td { border-bottom: 1px solid #f0f0f0; }
-    tbody tr:hover { background: #fafafa; }
-    td { padding: 10px 12px; vertical-align: top; }
-
-    .thumb-strip { display: flex; gap: 4px; flex-wrap: wrap; }
-    .thumb-strip img {
-      width: 52px;
-      height: 40px;
-      object-fit: cover;
-      border-radius: 3px;
-      border: 1px solid var(--border);
-    }
-    .thumb-more {
-      width: 52px;
-      height: 40px;
-      background: #e5e7eb;
-      border-radius: 3px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: .7rem;
-      color: var(--muted);
-      font-weight: 600;
-    }
-
-    .tag-list { display: flex; flex-wrap: wrap; gap: 3px; max-width: 340px; }
-    .tag {
-      background: #eff6ff;
-      color: var(--primary);
-      border: 1px solid #bfdbfe;
-      border-radius: 99px;
-      padding: 1px 7px;
-      font-size: .72rem;
-      white-space: nowrap;
-    }
-    .tag-overflow { font-size: .72rem; color: var(--muted); align-self: center; }
-
-    a.listing-link { color: var(--primary); text-decoration: none; font-weight: 600; }
-    a.listing-link:hover { text-decoration: underline; }
-
-    .badge {
-      display: inline-block;
-      padding: 2px 8px;
-      border-radius: 99px;
-      font-size: .7rem;
-      font-weight: 600;
-    }
-    .badge-blue  { background: #dbeafe; color: #1d4ed8; }
-    .badge-green { background: #dcfce7; color: #15803d; }
-    .badge-red   { background: #fee2e2; color: #b91c1c; }
-
-    /* ── Image Detail Modal ── */
-    .modal-overlay {
-      display: none;
-      position: fixed;
-      inset: 0;
-      background: rgba(0,0,0,.55);
-      z-index: 1000;
-      align-items: center;
-      justify-content: center;
-      padding: 20px;
-    }
-    .modal-overlay.open { display: flex; }
-    .modal-box {
-      background: var(--surface);
-      border-radius: 10px;
-      box-shadow: 0 8px 40px rgba(0,0,0,.25);
-      max-width: 820px;
-      width: 100%;
-      max-height: 90vh;
-      overflow-y: auto;
-      position: relative;
-    }
-    .modal-close {
-      position: absolute;
-      top: 10px;
-      right: 14px;
-      border: none;
-      background: none;
-      font-size: 1.5rem;
-      cursor: pointer;
-      color: var(--muted);
-      line-height: 1;
-      z-index: 2;
-    }
-    .modal-close:hover { color: var(--text); }
-    .modal-body {
-      padding: 24px;
-    }
-    .modal-image-wrap {
-      text-align: center;
-      margin-bottom: 16px;
-      background: #f0f0f0;
-      border-radius: 6px;
-      overflow: hidden;
-    }
-    .modal-image-wrap img {
-      max-width: 100%;
-      max-height: 50vh;
-      object-fit: contain;
-      display: block;
-      margin: 0 auto;
-    }
-    .modal-section-title {
-      font-size: .82rem;
-      font-weight: 600;
-      color: var(--muted);
-      text-transform: uppercase;
-      letter-spacing: .04em;
-      margin-bottom: 8px;
-    }
-    .modal-tags {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 5px;
-      margin-bottom: 16px;
-    }
-    .modal-tag {
-      background: #eff6ff;
-      color: var(--primary);
-      border: 1px solid #bfdbfe;
-      border-radius: 99px;
-      padding: 3px 10px;
-      font-size: .8rem;
-    }
-    .modal-tag.highlight {
-      background: var(--primary);
-      color: #fff;
-      border-color: var(--primary);
-    }
-    .modal-error {
-      color: var(--danger);
-      font-size: .85rem;
-      font-style: italic;
-    }
-    .modal-nav {
-      display: flex;
-      gap: 8px;
-      margin-bottom: 16px;
-    }
-    .modal-nav-thumb {
-      width: 56px;
-      height: 44px;
-      object-fit: cover;
-      border-radius: 4px;
-      border: 2px solid transparent;
-      cursor: pointer;
-      opacity: .6;
-      transition: opacity .15s, border-color .15s;
-    }
-    .modal-nav-thumb:hover { opacity: .85; }
-    .modal-nav-thumb.active {
-      border-color: var(--primary);
-      opacity: 1;
-    }
-    .thumb-strip img {
-      cursor: pointer;
-      transition: transform .15s;
-    }
-    .thumb-strip img:hover { transform: scale(1.08); }
-    .tag.clickable {
-      cursor: pointer;
-      transition: background .15s;
-    }
-    .tag.clickable:hover {
-      background: var(--primary);
-      color: #fff;
-      border-color: var(--primary);
-    }
-
-    /* ── Expandable rows ── */
-    tr.row-expanded > td { background: #f0f4ff; }
-    .expanded-row td { background: #f8faff; }
-    .expanded-cell {
-      padding: 16px 20px !important;
-    }
-    .expanded-section-title {
-      font-size: .82rem;
-      font-weight: 600;
-      color: var(--muted);
-      text-transform: uppercase;
-      letter-spacing: .04em;
-      margin-bottom: 10px;
-      margin-top: 12px;
-    }
-    .expanded-section-title:first-child { margin-top: 0; }
-    .expanded-img-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
-      gap: 10px;
-      margin-bottom: 14px;
-    }
-    .expanded-img-card {
-      border: 1px solid var(--border);
-      border-radius: 6px;
-      overflow: hidden;
-      background: var(--surface);
-    }
-    .expanded-img-card img {
-      width: 100%;
-      height: 120px;
-      object-fit: cover;
-      display: block;
-      cursor: pointer;
-      transition: opacity .15s;
-    }
-    .expanded-img-card img:hover { opacity: .8; }
-    .expanded-img-objects {
-      padding: 6px 8px;
-      display: flex;
-      flex-wrap: wrap;
-      gap: 3px;
-    }
-    .expanded-img-error {
-      padding: 4px 8px;
-      font-size: .72rem;
-      color: var(--danger);
-      font-style: italic;
-    }
-    tbody tr:hover { cursor: pointer; }
-
-    /* hidden helper */
-    .hidden { display: none !important; }
-
-    /* spinner */
-    @keyframes spin { to { transform: rotate(360deg); } }
-    .spinner {
-      display: inline-block;
-      width: 14px;
-      height: 14px;
-      border: 2px solid #fff;
-      border-top-color: transparent;
-      border-radius: 50%;
-      animation: spin .7s linear infinite;
-    }
-  </style>
+  /* Modal */
+  .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.85); z-index: 1000; justify-content: center; align-items: center; }
+  .modal-overlay.open { display: flex; }
+  .modal-content { max-width: 90vw; max-height: 90vh; position: relative; }
+  .modal-content img { max-width: 90vw; max-height: 85vh; object-fit: contain; border-radius: 4px; }
+  .modal-close { position: absolute; top: -30px; right: 0; background: none; border: none; color: #fff; font-size: 1.5rem; cursor: pointer; }
+  .modal-analysis { position: absolute; bottom: 0; left: 0; right: 0; background: rgba(0,0,0,0.8); padding: 8px 12px; font-size: 0.82rem; color: var(--text); max-height: 120px; overflow-y: auto; white-space: pre-wrap; border-radius: 0 0 4px 4px; }
+</style>
 </head>
 <body>
 
 <header>
   <h1>Estate Sale Scanner</h1>
-  <p>Scrape estate sale listings, extract images, and run AI object recognition</p>
+  <div class="scan-indicator" id="scanIndicator">
+    <span class="dot" id="scanDot"></span>
+    <span id="scanText">Idle</span>
+  </div>
+  <div class="header-actions">
+    <button id="scanBtn" onclick="triggerScan()">Scan Now</button>
+  </div>
 </header>
 
-<div class="container">
-
-  <!-- ── Configuration ── -->
-  <div class="card" id="configCard">
-    <h2>Configuration</h2>
-    <form id="scanForm">
-      <div class="form-row two-col">
-        <div>
-          <label for="zipCode">
-            Zip Code
-            <small>Enter a zip code to search for nearby estate sales</small>
-          </label>
-          <input type="text" id="zipCode" placeholder="91748" pattern="\d{5}" maxlength="5" required />
-        </div>
-        <div>
-          <label for="searchDistance">
-            Search Distance (miles)
-            <small>Radius around the zip code</small>
-          </label>
-          <input type="number" id="searchDistance" value="10" min="1" max="200" />
-        </div>
-      </div>
-
-      <details style="margin-top:16px">
-        <summary>AI &amp; Advanced Options</summary>
-        <div class="details-grid">
-          <div>
-            <label for="imageDomain">
-              Target Image Domain
-              <small>Only analyze images from this domain</small>
-            </label>
-            <input type="text" id="imageDomain" value="picturescdn.estatesales.net" placeholder="picturescdn.estatesales.net" />
-          </div>
-          <div>
-            <label for="apiType">AI API Type</label>
-            <select id="apiType">
-              <option value="ollama">Ollama (native)</option>
-              <option value="openai">OpenAI-compatible (open-webui)</option>
-            </select>
-          </div>
-          <div>
-            <label for="ollamaUrl">
-              API Base URL
-              <small>Leave blank to skip image analysis</small>
-            </label>
-            <input type="url" id="ollamaUrl" value="http://192.168.1.34:11434" placeholder="http://192.168.1.34:11434" />
-          </div>
-          <div>
-            <label for="ollamaModel">Model Name</label>
-            <input type="text" id="ollamaModel" value="llava-llama3:8b" placeholder="llava-llama3:8b" />
-          </div>
-          <div id="apiKeyRow" class="hidden">
-            <label for="apiKey">
-              API Key
-              <small>Optional for open-webui</small>
-            </label>
-            <input type="password" id="apiKey" placeholder="sk-…" />
-          </div>
-          <div>
-            <label for="maxImages">
-              Max images per listing
-              <small>0 = no limit</small>
-            </label>
-            <input type="number" id="maxImages" value="50" min="0" max="500" />
-          </div>
-          <div>
-            <label for="imageScale">
-              Image resize before AI
-              <small>1 = full size, 0.5 = half, 0.25 = quarter</small>
-            </label>
-            <input type="number" id="imageScale" value="0.5" min="0.1" max="1" step="0.05" />
-          </div>
-          <div>
-            <label for="aiConcurrency">
-              AI Concurrency
-              <small>Simultaneous image requests to Ollama</small>
-            </label>
-            <input type="number" id="aiConcurrency" value="1" min="1" max="20" />
-          </div>
-        </div>
-        <div style="margin-top:12px">
-          <label for="aiPrompt">
-            AI Prompt
-            <small>The instruction sent with each image to the vision model</small>
-          </label>
-          <textarea id="aiPrompt" rows="5" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:5px;font-size:.85rem;background:#fafafa;resize:vertical;font-family:system-ui,sans-serif">List every item in this image. For each item, provide only the name and the material/color.
-Rules:
-    Do NOT mention brands, models, or 'generic'.
-    Do NOT describe condition.
-    Format: [Item Name]: [Material/Color]
-    Be extremely brief. Use one line per item.</textarea>
-        </div>
-      </details>
-
-      <div class="form-footer">
-        <button class="btn btn-primary" type="submit" id="startBtn">
-          Start Scan
-        </button>
-        <span id="formError" style="color:var(--danger);font-size:.85rem"></span>
-      </div>
-    </form>
+<!-- Zip Codes -->
+<div class="panel">
+  <h2>Zip Codes</h2>
+  <table class="zip-table" id="zipTable">
+    <thead><tr><th>Zip Code</th><th>Distance</th><th></th></tr></thead>
+    <tbody id="zipRows"></tbody>
+  </table>
+  <div class="zip-add" style="margin-top:8px;display:flex;gap:6px;align-items:center;">
+    <input type="text" id="zipInput" placeholder="91748" maxlength="5" pattern="\d{5}" />
+    <input type="range" id="distInput" min="1" max="200" value="10" oninput="document.getElementById('distLabel').textContent=this.value+' mi'" />
+    <span id="distLabel" style="font-size:0.82rem;color:var(--muted);width:40px">10 mi</span>
+    <button onclick="addZipcode()">Add</button>
   </div>
+</div>
 
-  <!-- ── Progress ── -->
-  <div class="card hidden" id="progressCard">
-    <h2>Progress</h2>
-    <div class="phases">
-      <div class="phase-step" id="phaseStep1">
-        <div class="phase-dot">1</div>
-        <span class="phase-label">Find Listings</span>
+<!-- Settings (collapsible) -->
+<div class="panel">
+  <details>
+    <summary>Settings</summary>
+    <div class="settings-grid" style="margin-top:10px;" id="settingsForm">
+      <div><label>Ollama URL</label><input id="s_ollama_url" /></div>
+      <div><label>Model</label><input id="s_ollama_model" /></div>
+      <div><label>API Type</label>
+        <select id="s_api_type"><option value="native">Ollama Native</option><option value="openai">OpenAI Compatible</option></select>
       </div>
-      <div class="phase-step" id="phaseStep2">
-        <div class="phase-dot">2</div>
-        <span class="phase-label">Scrape Details</span>
-      </div>
-      <div class="phase-step" id="phaseStep3">
-        <div class="phase-dot">3</div>
-        <span class="phase-label">Analyze Images</span>
-      </div>
+      <div><label>API Key</label><input id="s_api_key" type="password" /></div>
+      <div><label>Image Domain Filter</label><input id="s_image_domain" /></div>
+      <div><label>Max Images / Listing</label><input id="s_max_images" type="number" min="0" /></div>
+      <div><label>Image Scale</label><input id="s_image_scale" type="number" step="0.1" min="0.1" max="1" /></div>
+      <div><label>AI Concurrency</label><input id="s_ai_concurrency" type="number" min="1" max="10" /></div>
+      <div><label>Scan Interval (hours)</label><input id="s_scan_interval_hours" type="number" min="0.5" step="0.5" /></div>
+      <div class="full-width"><label>AI Prompt</label><textarea id="s_ai_prompt"></textarea></div>
     </div>
-    <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
-    <div class="log-box" id="logBox"></div>
-  </div>
+    <button style="margin-top:8px;" onclick="saveSettings()">Save Settings</button>
+  </details>
+</div>
 
-  <!-- ── Results ── -->
-  <div class="hidden" id="resultsSection">
-    <div class="results-header">
-      <h2>Results</h2>
-      <button class="btn btn-outline" id="exportBtn">Export CSV</button>
-    </div>
+<!-- Filter bar -->
+<div class="filter-bar">
+  <label>From:</label><input type="date" id="filterFrom" />
+  <label>To:</label><input type="date" id="filterTo" />
+  <button class="btn-outline btn-sm" onclick="resetDates()">Reset</button>
+  <input type="text" id="filterText" placeholder="Search listings…" oninput="applyTextFilter()" />
+</div>
 
-    <div class="summary-bar" id="summaryBar"></div>
+<!-- Progress log -->
+<div class="panel" id="progressPanel" style="display:none;">
+  <h2>Scan Progress</h2>
+  <div id="progress-log"></div>
+</div>
 
-    <div style="margin-bottom:12px">
-      <input type="text" id="resultsFilter" placeholder="Filter results…" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:5px;font-size:.9rem;background:#fafafa" />
-    </div>
+<!-- Listings -->
+<div class="listings-container">
+  <div class="listing-count" id="listingCount"></div>
+  <div id="listingsArea"></div>
+</div>
 
-    <div class="table-wrap">
-      <table>
-        <thead>
-          <tr>
-            <th>Listing</th>
-            <th>Dates</th>
-            <th>Address</th>
-            <th>Images</th>
-            <th>Recognized Objects</th>
-          </tr>
-        </thead>
-        <tbody id="resultsBody"></tbody>
-      </table>
-    </div>
-  </div>
-
-</div><!-- /container -->
-
-<!-- ── Image Detail Modal ── -->
-<div class="modal-overlay" id="imageModal">
-  <div class="modal-box">
-    <button class="modal-close" id="modalClose">&times;</button>
-    <div class="modal-body">
-      <div class="modal-image-wrap" id="modalImageWrap"></div>
-      <div class="modal-nav" id="modalNav"></div>
-      <div id="modalObjectsSection">
-        <div class="modal-section-title">Recognized Objects</div>
-        <div class="modal-tags" id="modalTags"></div>
-      </div>
-      <div id="modalError" class="modal-error" style="display:none"></div>
-    </div>
+<!-- Image modal -->
+<div class="modal-overlay" id="modal" onclick="if(event.target===this)closeModal()">
+  <div class="modal-content">
+    <button class="modal-close" onclick="closeModal()">&times;</button>
+    <img id="modalImg" />
+    <div class="modal-analysis" id="modalAnalysis"></div>
   </div>
 </div>
 

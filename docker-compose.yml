@@ -5,18 +5,17 @@ services:
     image: esdetails:latest
     ports:
       - "3000:3000"
+    volumes:
+      - esdetails-data:/data
     environment:
-      # These are defaults; override via a .env file or Portainer environment settings
       - NODE_ENV=production
       - PORT=3000
+      - DATA_DIR=/data
       # Default Ollama URL — points to the Docker host so the container can reach
       # an Ollama instance running on the host machine.
       # Change to a real hostname/IP if Ollama runs elsewhere.
       - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
       - OLLAMA_MODEL=${OLLAMA_MODEL:-llava}
-      # Cache TTLs (seconds) for remote resources
-      - IMAGE_CACHE_SECONDS=${IMAGE_CACHE_SECONDS:-43200}   # 12 hours
-      - PAGE_CACHE_SECONDS=${PAGE_CACHE_SECONDS:-3600}       # 1 hour
     extra_hosts:
       # Allows "host.docker.internal" to resolve to the host on Linux
       - "host.docker.internal:host-gateway"
@@ -27,3 +26,6 @@ services:
       timeout: 10s
       retries: 3
       start_period: 15s
+
+volumes:
+  esdetails-data:
