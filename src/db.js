@@ -63,7 +63,7 @@ if (!listCols.includes('scraped_at')) {
 
 // ── Default settings ───────────────────────────────────────────────────────
 const DEFAULTS = {
-  scan_interval_hours: '24',
+  scan_time: '05:00',
   image_domain: 'picturescdn.estatesales.net',
   ollama_url: 'http://192.168.1.34:11434',
   ollama_model: 'llava-llama3:8b',

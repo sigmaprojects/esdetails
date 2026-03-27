@@ -167,9 +167,9 @@ app.post('/api/settings', (req, res) => {
   for (const [key, value] of Object.entries(req.body)) {
     db.setSetting(key, value);
   }
-  // Restart scheduler if interval changed
-  if (req.body.scan_interval_hours) {
-    startScheduler(parseFloat(req.body.scan_interval_hours) || 24, broadcast);
+  // Restart scheduler if scan time changed
+  if (req.body.scan_time) {
+    startScheduler(req.body.scan_time, broadcast);
   }
   res.json({ ok: true });
 });
@@ -178,6 +178,6 @@ app.post('/api/settings', (req, res) => {
 const PORT = parseInt(process.env.PORT, 10) || 3000;
 app.listen(PORT, () => {
   console.log(`Estate Sale Scanner running on port ${PORT}`);
-  const hours = parseFloat(db.getSetting('scan_interval_hours')) || 24;
-  startScheduler(hours, broadcast);
+  const scanTime = db.getSetting('scan_time') || '05:00';
+  startScheduler(scanTime, broadcast);
 });

@@ -86,7 +86,7 @@ document.getElementById('zipInput').addEventListener('keydown', e => { if (e.key
 /* ── Settings ──────────────────────────────────────────────────────────── */
 const SETTING_KEYS = [
   'ollama_url', 'ollama_model', 'api_type', 'api_key',
-  'image_domain', 'max_images', 'image_scale', 'ai_concurrency', 'scan_interval_hours', 'ai_prompt'
+  'image_domain', 'max_images', 'image_scale', 'ai_concurrency', 'scan_time', 'ai_prompt'
 ];
 
 async function loadSettings() {

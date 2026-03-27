@@ -86,21 +86,38 @@ function enqueueAiAnalysis(listingUrl, broadcast) {
 }
 
 // ── Scheduler ──────────────────────────────────────────────────────────────
-export function startScheduler(hours, broadcast) {
-  stopScheduler();
-  const ms = Math.max(hours, 0.1) * 3600_000;
-  intervalTimer = setInterval(() => runFullScan(broadcast), ms);
-  console.log(`[Scheduler] Will scan every ${hours}h (${ms}ms)`);
 
-  // On startup, scan if last scan is stale or never happened
+function msUntilNext(timeStr) {
+  const [h, m] = timeStr.split(':').map(Number);
+  const now = new Date();
+  const target = new Date(now);
+  target.setHours(h, m, 0, 0);
+  if (target <= now) target.setDate(target.getDate() + 1);
+  return target - now;
+}
+
+export function startScheduler(scanTime, broadcast) {
+  stopScheduler();
+  const schedule = () => {
+    const ms = msUntilNext(scanTime);
+    const nextDate = new Date(Date.now() + ms);
+    console.log(`[Scheduler] Next scan at ${scanTime} (in ${Math.round(ms / 60000)} min — ${nextDate.toLocaleString()})`);
+    intervalTimer = setTimeout(() => {
+      runFullScan(broadcast).catch(err => console.error('[Scheduler] Scan error:', err));
+      schedule();
+    }, ms);
+  };
+  schedule();
+
+  // On startup, scan if never scanned or last scan was >24h ago
   const last = db.getSetting('last_scan_at');
-  if (!last || (Date.now() - new Date(last).getTime()) > ms) {
+  if (!last || (Date.now() - new Date(last).getTime()) > 86400_000) {
     setTimeout(() => runFullScan(broadcast), 5000);
   }
 }
 
 export function stopScheduler() {
-  if (intervalTimer) clearInterval(intervalTimer);
+  if (intervalTimer) clearTimeout(intervalTimer);
   intervalTimer = null;
 }
 
