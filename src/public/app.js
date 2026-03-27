@@ -198,13 +198,17 @@ function renderListings() {
             <a href="${esc(l.url)}" target="_blank" style="color:var(--accent);font-size:0.8rem;text-decoration:none;word-break:break-all;">🔗 ${esc(l.url)}</a>
           </div>
           <div class="listing-actions">
-            <button class="btn-sm" onclick="reanalyze('${esc(l.url)}')">Re-analyze Images</button>              <button class="btn-sm" style="background:var(--red,#c0392b);color:#fff" onclick="deleteListing('${esc(l.url)}')">Delete Listing</button>          </div>
+            ${hasFilter ? `<button class="btn-sm show-all-btn" onclick="toggleShowAll(this)">Only showing images matching &quot;${esc(text)}&quot; — click to show all</button>` : ''}
+            <button class="btn-sm" onclick="reanalyze('${esc(l.url)}')">Re-analyze Images</button>
+            <button class="btn-sm" style="background:var(--red,#c0392b);color:#fff" onclick="deleteListing('${esc(l.url)}')">Delete Listing</button>
+          </div>
           <div class="image-grid">
             ${l.images.map(img => {
               const analysisText = img.analysis || '';
               const isMatch = hasFilter && analysisText.toLowerCase().includes(text);
+              const hidden = hasFilter && !isMatch;
               return `
-              <div class="image-card${isMatch ? ' match' : ''}">
+              <div class="image-card${isMatch ? ' match' : ''}${hidden ? ' filtered-out' : ''}">
                 <img src="${esc(img.local_url)}" loading="lazy" data-analysis="${esc(analysisText)}" onclick="openModal(this)" />
                 ${img.analyzed_at
                   ? `<div class="analysis">${highlightText(analysisText, text)}</div>`
@@ -226,6 +230,14 @@ function toggleListing(headerEl) {
 
 function applyTextFilter() {
   renderListings();
+}
+
+function toggleShowAll(btn) {
+  const grid = btn.closest('.listing-body').querySelector('.image-grid');
+  const showing = grid.classList.toggle('show-all');
+  btn.textContent = showing
+    ? 'Showing all images — click to filter again'
+    : `Only showing images matching "${filterText.value}" — click to show all`;
 }
 
 async function toggleSort(col) {

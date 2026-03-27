@@ -95,8 +95,12 @@
   .listing-address { font-size: 0.85rem; margin-bottom: 8px; }
   .listing-address a { color: var(--accent); text-decoration: none; font-weight: 500; }
   .listing-address a:hover { text-decoration: underline; }
-  .listing-actions { margin-bottom: 12px; display: flex; gap: 8px; }
+  .listing-actions { margin-bottom: 12px; display: flex; gap: 8px; justify-content: flex-end; }
+  .listing-actions .show-all-btn { margin-right: auto; background: var(--accent-soft); color: var(--accent); border: 1px solid var(--accent); font-size: 0.78rem; cursor: pointer; padding: 4px 10px; border-radius: var(--radius); }
+  .listing-actions .show-all-btn:hover { background: var(--accent); color: #fff; }
 
+  .image-card.filtered-out { display: none; }
+  .image-grid.show-all .image-card.filtered-out { display: block; }
   .image-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; }
   .image-card { background: var(--bg); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; transition: transform 0.15s ease, box-shadow 0.15s ease; }
   .image-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-md); }
