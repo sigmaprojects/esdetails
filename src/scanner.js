@@ -10,6 +10,81 @@ let intervalTimer = null;
 const LISTING_CACHE_MS = (parseFloat(process.env.LISTING_CACHE_HOURS) || 24) * 3600_000;
 const IMAGE_CACHE_MS  = (parseFloat(process.env.IMAGE_CACHE_DAYS) || 7) * 86400_000;
 
+// ── AI analysis queue (runs independently from scraping) ───────────────────
+let _aiQueue = [];       // [{ listingUrl, settings, broadcast }]
+let _aiRunning = false;
+let _aiBroadcast = null;
+
+async function _drainAiQueue() {
+  if (_aiRunning) return;  // already draining
+  _aiRunning = true;
+
+  while (_aiQueue.length > 0) {
+    // Re-read settings each batch so concurrency changes apply immediately
+    const settings = db.getAllSettings();
+    const concurrency = Math.max(1, parseInt(settings.ai_concurrency, 10) || 1);
+    const broadcast = _aiBroadcast || (() => {});
+
+    // Gather all pending items
+    const batch = _aiQueue.splice(0, _aiQueue.length);
+
+    // Collect all unanalyzed images across all queued listings
+    const work = [];
+    for (const item of batch) {
+      const unanalyzed = db.getUnanalyzedImages(item.listingUrl);
+      for (const img of unanalyzed) {
+        work.push({ listingUrl: item.listingUrl, img });
+      }
+    }
+
+    if (work.length === 0) continue;
+
+    const ollamaUrl = settings.ollama_url;
+    const ollamaModel = settings.ollama_model;
+    if (!ollamaUrl || !ollamaModel) continue;
+
+    const apiType = settings.api_type || 'ollama';
+    broadcast({ type: 'scan_progress', message: `🤖 AI queue: ${work.length} image${work.length !== 1 ? 's' : ''} to analyze (concurrency: ${concurrency})` });
+
+    let cursor = 0;
+    async function worker() {
+      while (cursor < work.length) {
+        const idx = cursor++;
+        const { listingUrl, img } = work[idx];
+        try {
+          const localPath = path.join(db.IMAGES_DIR, img.local_filename);
+          broadcast({ type: 'scan_progress', message: `  🔍 AI analyzing image ${idx + 1}/${work.length}…` });
+          const analysis = await analyzeLocalImage(localPath, settings);
+          db.updateAnalysis(img.id, analysis);
+          const itemCount = analysis.split('\n').filter(l => l.trim()).length;
+          broadcast({
+            type: 'image_analyzed',
+            listingUrl,
+            imageId: img.id,
+            analysis,
+            message: `  ✅ AI returned ${itemCount} item${itemCount !== 1 ? 's' : ''} (image ${idx + 1}/${work.length})`,
+          });
+        } catch (err) {
+          console.error(`[Scanner] Analysis failed for image ${img.id}: ${err.message}`);
+          db.updateAnalysis(img.id, `ERROR: ${err.message}`);
+          broadcast({ type: 'scan_progress', message: `  ⚠ AI failed for image ${idx + 1}/${work.length}: ${err.message}` });
+        }
+      }
+    }
+
+    await Promise.all(Array.from({ length: Math.min(concurrency, work.length) }, () => worker()));
+  }
+
+  _aiRunning = false;
+}
+
+function enqueueAiAnalysis(listingUrl, broadcast) {
+  _aiBroadcast = broadcast;
+  _aiQueue.push({ listingUrl });
+  // Start draining (no-op if already running)
+  _drainAiQueue().catch(err => console.error('[AI Queue] Error:', err));
+}
+
 // ── Scheduler ──────────────────────────────────────────────────────────────
 export function startScheduler(hours, broadcast) {
   stopScheduler();
@@ -80,34 +155,39 @@ export async function runFullScan(broadcast) {
         broadcast({ type: 'scan_progress', message: `  ↳ ${cachedPages} listing page${cachedPages !== 1 ? 's' : ''} still cached (< ${process.env.LISTING_CACHE_HOURS || 24}h), scraping ${staleUrls.length} stale` });
       }
 
-      // Scrape only stale listings
+      // Scrape only stale listings — save each to DB as soon as it's scraped
+      // so the UI can display it immediately
       let scraped;
       try {
         scraped = await scrapeListings(staleUrls, imageDomain, (d) => {
           if (d.message) broadcast({ type: 'scan_progress', message: d.message });
+
+          // Save listing to DB as soon as it's scraped (don't wait for image download/AI)
+          if (d.type === 'listing_scraped' && d.listing && !d.listing.error) {
+            const listing = d.listing;
+            const { start_date, end_date } = db.parseDateRange(listing.dates);
+            db.upsertListing({
+              url: listing.url,
+              title: listing.title || '',
+              dates: listing.dates || '',
+              address: listing.address || '',
+              start_date,
+              end_date,
+            });
+            broadcast({ type: 'listing_saved', listingUrl: listing.url, message: `Saved: ${listing.title || listing.url}` });
+          }
         }, { zipcode });
       } catch (err) {
         broadcast({ type: 'scan_progress', message: `Scraping error for ${zipcode}: ${err.message}` });
         continue;
       }
 
-      broadcast({ type: 'scan_progress', message: `Scraped ${scraped.length} listings, processing details…` });
+      broadcast({ type: 'scan_progress', message: `Scraped ${scraped.length} listings, downloading images…` });
 
-      // Also process cached (non-scraped) listings for image downloads / analysis
-      const allUrls = listingUrls;
+      // Download images and enqueue AI analysis for each listing
       for (let li = 0; li < scraped.length; li++) {
         const listing = scraped[li];
-        // Parse dates and upsert listing
-        const { start_date, end_date } = db.parseDateRange(listing.dates);
-        db.upsertListing({
-          url: listing.url,
-          title: listing.title || '',
-          dates: listing.dates || '',
-          address: listing.address || '',
-          start_date,
-          end_date,
-        });
-        broadcast({ type: 'scan_progress', message: `[${li + 1}/${scraped.length}] Saved: ${listing.title || listing.url}` });
+        if (listing.error) continue; // skip errored listings (already reported)
 
         // Download new images to local storage
         const imgs = maxImages > 0 ? (listing.images || []).slice(0, maxImages) : (listing.images || []);
@@ -140,12 +220,10 @@ export async function runFullScan(broadcast) {
         }
         if (newImageCount) {
           broadcast({ type: 'scan_progress', message: `  ↳ Downloaded ${newImageCount} new image${newImageCount !== 1 ? 's' : ''}, ${cachedCount} cached` });
-        } else if (imgs.length > 0 && cachedCount === imgs.length) {
-          // all cached, already reported above
         }
 
-        // Analyze unanalyzed images
-        await analyzeUnanalyzed(listing.url, settings, broadcast);
+        // Enqueue AI analysis to run in parallel (doesn't block scraping)
+        enqueueAiAnalysis(listing.url, broadcast);
       }
     }
 
@@ -163,53 +241,7 @@ export async function runFullScan(broadcast) {
 
 // ── Re-analyze a single listing ────────────────────────────────────────────
 export async function reanalyzeListing(listingUrl, broadcast) {
-  const settings = db.getAllSettings();
   db.clearAnalysisForListing(listingUrl);
   broadcast({ type: 'scan_progress', message: `Re-analyzing images for listing…` });
-  await analyzeUnanalyzed(listingUrl, settings, broadcast);
-  broadcast({ type: 'reanalyze_complete', listingUrl });
-}
-
-// ── Analyze unanalyzed images for a listing ────────────────────────────────
-async function analyzeUnanalyzed(listingUrl, settings, broadcast) {
-  const ollamaUrl = settings.ollama_url;
-  const ollamaModel = settings.ollama_model;
-  if (!ollamaUrl || !ollamaModel) return;
-
-  const unanalyzed = db.getUnanalyzedImages(listingUrl);
-  if (!unanalyzed.length) return;
-
-  const apiType = settings.api_type || 'ollama';
-  const modelName = ollamaModel;
-  broadcast({ type: 'scan_progress', message: `  🤖 Sending ${unanalyzed.length} image${unanalyzed.length !== 1 ? 's' : ''} to AI (${apiType}/${modelName})…` });
-
-  const concurrency = Math.max(1, parseInt(settings.ai_concurrency, 10) || 1);
-  let cursor = 0;
-
-  async function worker() {
-    while (cursor < unanalyzed.length) {
-      const img = unanalyzed[cursor++];
-      try {
-        const localPath = path.join(db.IMAGES_DIR, img.local_filename);
-        broadcast({ type: 'scan_progress', message: `  🔍 AI analyzing image ${cursor}/${unanalyzed.length}…` });
-        const analysis = await analyzeLocalImage(localPath, settings);
-        db.updateAnalysis(img.id, analysis);
-        // Count items in the analysis
-        const itemCount = analysis.split('\n').filter(l => l.trim()).length;
-        broadcast({
-          type: 'image_analyzed',
-          listingUrl,
-          imageId: img.id,
-          analysis,
-          message: `  ✅ AI returned ${itemCount} item${itemCount !== 1 ? 's' : ''} (image ${cursor}/${unanalyzed.length})`,
-        });
-      } catch (err) {
-        console.error(`[Scanner] Analysis failed for image ${img.id}: ${err.message}`);
-        db.updateAnalysis(img.id, `ERROR: ${err.message}`);
-        broadcast({ type: 'scan_progress', message: `  ⚠ AI failed for image ${cursor}/${unanalyzed.length}: ${err.message}` });
-      }
-    }
-  }
-
-  await Promise.all(Array.from({ length: Math.min(concurrency, unanalyzed.length) }, () => worker()));
+  enqueueAiAnalysis(listingUrl, broadcast);
 }

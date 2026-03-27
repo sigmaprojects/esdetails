@@ -198,8 +198,7 @@ function renderListings() {
             <a href="${esc(l.url)}" target="_blank" style="color:var(--accent);font-size:0.8rem;text-decoration:none;word-break:break-all;">🔗 ${esc(l.url)}</a>
           </div>
           <div class="listing-actions">
-            <button class="btn-sm" onclick="reanalyze('${esc(l.url)}')">Re-analyze Images</button>
-          </div>
+            <button class="btn-sm" onclick="reanalyze('${esc(l.url)}')">Re-analyze Images</button>              <button class="btn-sm" style="background:var(--red,#c0392b);color:#fff" onclick="deleteListing('${esc(l.url)}')">Delete Listing</button>          </div>
           <div class="image-grid">
             ${l.images.map(img => {
               const analysisText = img.analysis || '';
@@ -325,6 +324,12 @@ async function reanalyze(listingUrl) {
   await api('/api/reanalyze', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ listingUrl }) });
 }
 
+async function deleteListing(listingUrl) {
+  if (!confirm('Delete this listing and all its images?')) return;
+  await api('/api/listings', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url: listingUrl }) });
+  loadListings();
+}
+
 /* ── Modal ─────────────────────────────────────────────────────────────── */
 function openModal(imgEl) {
   document.getElementById('modalImg').src = imgEl.src;
@@ -341,9 +346,9 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal()
 
 /* ── SSE ───────────────────────────────────────────────────────────────── */
 let _listingReloadTimer = null;
-function scheduleListingReload() {
+function scheduleListingReload(delayMs = 2000) {
   if (_listingReloadTimer) return;
-  _listingReloadTimer = setTimeout(() => { _listingReloadTimer = null; loadListings(); }, 3000);
+  _listingReloadTimer = setTimeout(() => { _listingReloadTimer = null; loadListings(); }, delayMs);
 }
 
 function connectSSE() {
@@ -372,11 +377,21 @@ function connectSSE() {
           else if (d.message.includes('cached')) p.style.color = '#8b8fa3';
           log.appendChild(p);
           log.scrollTop = log.scrollHeight;
-          // Auto-refresh listings when new data is saved
-          if (d.message.includes('Saved:') || d.message.includes('Downloaded')) {
+          if (d.message.includes('Downloaded')) {
             scheduleListingReload();
           }
         }
+        break;
+      case 'listing_saved':
+        if (d.message) {
+          const p = document.createElement('p');
+          p.style.color = 'var(--green)';
+          p.textContent = d.message;
+          log.appendChild(p);
+          log.scrollTop = log.scrollHeight;
+        }
+        // Immediately refresh listings so they appear in the UI
+        scheduleListingReload(500);
         break;
       case 'scan_complete':
         if (d.message) {

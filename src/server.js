@@ -1,6 +1,7 @@
 import express from 'express';
 import { fileURLToPath } from 'url';
 import path from 'path';
+import fs from 'fs';
 import zipcodes from 'zipcodes';
 
 import * as db from './db.js';
@@ -74,6 +75,18 @@ app.delete('/api/zipcodes/:id', (req, res) => {
 });
 
 // ── Listings ───────────────────────────────────────────────────────────────
+app.delete('/api/listings', (req, res) => {
+  const { url } = req.body;
+  if (!url) return res.status(400).json({ error: 'url required' });
+  const imgs = db.deleteListing(url);
+  // Clean up local image files
+  for (const img of imgs) {
+    const filePath = path.join(db.IMAGES_DIR, img.local_filename);
+    fs.unlink(filePath, () => {}); // best-effort delete
+  }
+  res.json({ ok: true });
+});
+
 app.get('/api/listings', (req, res) => {
   const { from, to } = req.query;
   const listings = db.getListings(from || null, to || null);

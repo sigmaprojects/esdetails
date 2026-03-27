@@ -126,6 +126,9 @@ const stmts = {
   clearAnalysisForListing: db.prepare('UPDATE images SET analysis = NULL, analyzed_at = NULL WHERE listing_url = ?'),
   getUnanalyzedImages: db.prepare('SELECT * FROM images WHERE listing_url = ? AND analyzed_at IS NULL'),
 
+  deleteListing: db.prepare('DELETE FROM listings WHERE url = ?'),
+  deleteImagesByListing: db.prepare('DELETE FROM images WHERE listing_url = ?'),
+
   getSetting: db.prepare('SELECT value FROM settings WHERE key = ?'),
   setSetting: db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)'),
   getAllSettings: db.prepare('SELECT key, value FROM settings'),
@@ -152,6 +155,12 @@ export function addImage(data) { return stmts.addImage.run(data); }
 export function updateAnalysis(id, analysis) { return stmts.updateAnalysis.run(analysis, id); }
 export function clearAnalysisForListing(url) { return stmts.clearAnalysisForListing.run(url); }
 export function getUnanalyzedImages(url) { return stmts.getUnanalyzedImages.all(url); }
+export function deleteListing(url) {
+  const imgs = stmts.getImagesByListing.all(url);
+  stmts.deleteImagesByListing.run(url);
+  stmts.deleteListing.run(url);
+  return imgs;
+}
 
 export function getSetting(key) { const r = stmts.getSetting.get(key); return r ? r.value : null; }
 export function setSetting(key, value) { return stmts.setSetting.run(key, String(value)); }
