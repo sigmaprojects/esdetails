@@ -7,10 +7,10 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
  * Scroll the page progressively until all lazy-loaded content has appeared.
  * Keeps scrolling until the scroll height stops growing for several consecutive checks.
  */
-async function scrollToLoadAll(page, { maxScrolls = 80, scrollPause = 600 } = {}) {
+async function scrollToLoadAll(page, { maxScrolls = 50, scrollPause = 300 } = {}) {
   let previousHeight = 0;
   let stableCount = 0;
-  const stableThreshold = 3; // stop after height unchanged N times in a row
+  const stableThreshold = 2; // stop after height unchanged N times in a row
 
   for (let i = 0; i < maxScrolls; i++) {
     const currentHeight = await page.evaluate(() => document.body.scrollHeight);
@@ -405,7 +405,7 @@ async function scrapeListing(browser, url, imageDomain) {
 
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 40000 });
     // Best-effort wait for JS gallery to hydrate
-    await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
+    await page.waitForLoadState('networkidle', { timeout: 8000 }).catch(() => {});
 
     // Scroll the page to trigger lazy-loaded gallery images
     await scrollToLoadAll(page);
@@ -497,20 +497,20 @@ async function scrapeListing(browser, url, imageDomain) {
         .catch(() => '');
     }
 
-    // --- Strategy 4: collect img[src] from DOM if no images yet ---
-    if (images.length === 0) {
-      const domImgs = await page.evaluate(() =>
-        [...document.querySelectorAll('img')]
-          .flatMap((img) => [
-            img.src,
-            img.getAttribute('data-src'),
-            img.getAttribute('data-full'),
-            img.getAttribute('data-original'),
-          ])
-          .filter(Boolean)
-      );
-      images = domImgs.filter((img) => isGalleryImage(img, imageDomain));
-    }
+    // --- Strategy 4: always collect img[src] from DOM (may include scroll-loaded images) ---
+    const domImgs = await page.evaluate(() =>
+      [...document.querySelectorAll('img')]
+        .flatMap((img) => [
+          img.src,
+          img.getAttribute('data-src'),
+          img.getAttribute('data-full'),
+          img.getAttribute('data-original'),
+        ])
+        .filter(Boolean)
+    );
+    const filteredDomImgs = domImgs.filter((img) => isGalleryImage(img, imageDomain));
+    // Merge DOM images with any already found (e.g. from __NEXT_DATA__)
+    images = [...new Set([...images, ...filteredDomImgs])];
 
     // --- Strategy 5: try clicking thumbnails for full-size modal images ---
     if (images.length < 3) {
@@ -552,8 +552,8 @@ async function clickThroughGallery(page, imageDomain) {
 
   for (const thumb of thumbs.slice(0, 40)) {
     try {
-      await thumb.click({ timeout: 3000 });
-      await sleep(600);
+      await thumb.click({ timeout: 2000 });
+      await sleep(400);
 
       // Capture the full-size image displayed in any modal/lightbox
       const fullImg = await page
@@ -567,7 +567,7 @@ async function clickThroughGallery(page, imageDomain) {
 
       // Close modal
       await page.keyboard.press('Escape');
-      await sleep(300);
+      await sleep(200);
     } catch {
       // Ignore failures for individual thumbnails
     }
