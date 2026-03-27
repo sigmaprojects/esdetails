@@ -155,9 +155,10 @@ export async function runFullScan(broadcast) {
         broadcast({ type: 'scan_progress', message: `  ↳ ${cachedPages} listing page${cachedPages !== 1 ? 's' : ''} still cached (< ${process.env.LISTING_CACHE_HOURS || 24}h), scraping ${staleUrls.length} stale` });
       }
 
-      // Scrape only stale listings — save each to DB as soon as it's scraped
-      // so the UI can display it immediately
+      // Scrape only stale listings — save each to DB as soon as it's scraped,
+      // then kick off image download + AI analysis in the background
       let scraped;
+      const imageDownloadPromises = [];
       try {
         scraped = await scrapeListings(staleUrls, imageDomain, (d) => {
           if (d.message) broadcast({ type: 'scan_progress', message: d.message });
@@ -175,6 +176,12 @@ export async function runFullScan(broadcast) {
               end_date,
             });
             broadcast({ type: 'listing_saved', listingUrl: listing.url, message: `Saved: ${listing.title || listing.url}` });
+
+            // Fire off image download + AI in the background (don't block next scrape)
+            const downloadPromise = downloadListingImages(listing, maxImages, broadcast)
+              .then(() => enqueueAiAnalysis(listing.url, broadcast))
+              .catch(err => console.error(`[Scanner] Image pipeline error for ${listing.url}: ${err.message}`));
+            imageDownloadPromises.push(downloadPromise);
           }
         }, { zipcode });
       } catch (err) {
@@ -182,49 +189,8 @@ export async function runFullScan(broadcast) {
         continue;
       }
 
-      broadcast({ type: 'scan_progress', message: `Scraped ${scraped.length} listings, downloading images…` });
-
-      // Download images and enqueue AI analysis for each listing
-      for (let li = 0; li < scraped.length; li++) {
-        const listing = scraped[li];
-        if (listing.error) continue; // skip errored listings (already reported)
-
-        // Download new images to local storage
-        const imgs = maxImages > 0 ? (listing.images || []).slice(0, maxImages) : (listing.images || []);
-        const cachedCount = imgs.filter(url => db.imageExists(listing.url, url)).length;
-        let newImageCount = 0;
-        if (cachedCount > 0) {
-          broadcast({ type: 'scan_progress', message: `  ↳ ${cachedCount} image${cachedCount !== 1 ? 's' : ''} already cached` });
-        }
-        for (const remoteUrl of imgs) {
-          if (db.imageExists(listing.url, remoteUrl)) {
-            // Verify file still on disk and not older than IMAGE_CACHE_DAYS
-            const existingImg = db.getImagesByListing(listing.url).find(i => i.remote_url === remoteUrl);
-            if (existingImg) {
-              const filePath = path.join(db.IMAGES_DIR, existingImg.local_filename);
-              if (fs.existsSync(filePath)) {
-                const fileAge = Date.now() - fs.statSync(filePath).mtimeMs;
-                if (fileAge < IMAGE_CACHE_MS) continue;
-              }
-            }
-          }
-          try {
-            broadcast({ type: 'scan_progress', message: `  ↳ Downloading image ${newImageCount + 1 + cachedCount}/${imgs.length}…` });
-            const localFilename = await downloadImageToLocal(remoteUrl, db.IMAGES_DIR);
-            db.addImage({ listing_url: listing.url, remote_url: remoteUrl, local_filename: localFilename });
-            newImageCount++;
-          } catch (err) {
-            console.error(`[Scanner] Download failed ${remoteUrl}: ${err.message}`);
-            broadcast({ type: 'scan_progress', message: `  ↳ ⚠ Download failed: ${err.message}` });
-          }
-        }
-        if (newImageCount) {
-          broadcast({ type: 'scan_progress', message: `  ↳ Downloaded ${newImageCount} new image${newImageCount !== 1 ? 's' : ''}, ${cachedCount} cached` });
-        }
-
-        // Enqueue AI analysis to run in parallel (doesn't block scraping)
-        enqueueAiAnalysis(listing.url, broadcast);
-      }
+      // Wait for all background image downloads to finish before moving to next zip
+      await Promise.all(imageDownloadPromises);
     }
 
     db.setSetting('last_scan_at', new Date().toISOString());
@@ -236,6 +202,39 @@ export async function runFullScan(broadcast) {
   } finally {
     scanning = false;
     broadcast({ type: 'scan_status', status: 'idle' });
+  }
+}
+
+// ── Download images for a single listing ───────────────────────────────────
+async function downloadListingImages(listing, maxImages, broadcast) {
+  const imgs = maxImages > 0 ? (listing.images || []).slice(0, maxImages) : (listing.images || []);
+  const cachedCount = imgs.filter(url => db.imageExists(listing.url, url)).length;
+  let newImageCount = 0;
+  if (cachedCount > 0) {
+    broadcast({ type: 'scan_progress', message: `  ↳ ${cachedCount} image${cachedCount !== 1 ? 's' : ''} already cached` });
+  }
+  for (const remoteUrl of imgs) {
+    if (db.imageExists(listing.url, remoteUrl)) {
+      const existingImg = db.getImagesByListing(listing.url).find(i => i.remote_url === remoteUrl);
+      if (existingImg) {
+        const filePath = path.join(db.IMAGES_DIR, existingImg.local_filename);
+        if (fs.existsSync(filePath)) {
+          const fileAge = Date.now() - fs.statSync(filePath).mtimeMs;
+          if (fileAge < IMAGE_CACHE_MS) continue;
+        }
+      }
+    }
+    try {
+      const localFilename = await downloadImageToLocal(remoteUrl, db.IMAGES_DIR);
+      db.addImage({ listing_url: listing.url, remote_url: remoteUrl, local_filename: localFilename });
+      newImageCount++;
+    } catch (err) {
+      console.error(`[Scanner] Download failed ${remoteUrl}: ${err.message}`);
+    }
+  }
+  if (newImageCount) {
+    broadcast({ type: 'scan_progress', message: `  ↳ Downloaded ${newImageCount} new image${newImageCount !== 1 ? 's' : ''} for ${listing.title || listing.url}` });
+    broadcast({ type: 'listing_saved', listingUrl: listing.url });
   }
 }
 
