@@ -120,7 +120,6 @@ export async function runFullScan(broadcast) {
     }
 
     const settings = db.getAllSettings();
-    const imageDomain = settings.image_domain || '';
     const maxImages = parseInt(settings.max_images, 10) || 0;
 
     const totalZips = zipcodes.length;
@@ -160,7 +159,7 @@ export async function runFullScan(broadcast) {
       let scraped;
       const imageDownloadPromises = [];
       try {
-        scraped = await scrapeListings(staleUrls, imageDomain, (d) => {
+        scraped = await scrapeListings(staleUrls, (d) => {
           if (d.message) broadcast({ type: 'scan_progress', message: d.message });
 
           // Save listing to DB as soon as it's scraped (don't wait for image download/AI)
