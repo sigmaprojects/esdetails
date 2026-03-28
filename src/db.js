@@ -72,6 +72,7 @@ const DEFAULTS = {
   max_images: '50',
   image_scale: '0.5',
   ai_concurrency: '1',
+  ai_timeout_seconds: '300',
   ai_prompt: 'List every item in this image. For each item, provide only the name and the material/color.\nRules:\nDo NOT mention brands, models, or \'generic\'.\nDo NOT describe condition.\nFormat: [Item Name]: [Material/Color]\nBe extremely brief. Use one line per item.',
   last_scan_at: '',
 };
