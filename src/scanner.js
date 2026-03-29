@@ -85,11 +85,8 @@ async function _drainAiQueue() {
 }
 
 function enqueueAiAnalysis(listingUrl, broadcast) {
-  if (_aiStopped) return;  // don't enqueue when stopped
   _aiBroadcast = broadcast;
   _aiQueue.push({ listingUrl });
-  // Start draining (no-op if already running)
-  _drainAiQueue().catch(err => console.error('[AI Queue] Error:', err));
 }
 
 export function stopAiAnalysis(broadcast) {
@@ -101,12 +98,14 @@ export function stopAiAnalysis(broadcast) {
 export function resumeAiAnalysis(broadcast) {
   _aiStopped = false;
   _aiBroadcast = broadcast;
-  // Re-queue all listings that have unanalyzed images
+  // Merge DB listings with unanalyzed images into the existing queue
+  const queued = new Set(_aiQueue.map(q => q.listingUrl));
   const urls = db.listingsWithUnanalyzed();
   for (const url of urls) {
-    _aiQueue.push({ listingUrl: url });
+    if (!queued.has(url)) _aiQueue.push({ listingUrl: url });
   }
-  broadcast({ type: 'ai_status', status: 'running', message: `▶ AI analysis resumed — ${urls.length} listing${urls.length !== 1 ? 's' : ''} queued` });
+  const total = _aiQueue.length;
+  broadcast({ type: 'ai_status', status: 'running', message: `▶ AI analysis started — ${total} listing${total !== 1 ? 's' : ''} queued` });
   _drainAiQueue().catch(err => console.error('[AI Queue] Error:', err));
 }
 
@@ -284,6 +283,9 @@ async function downloadListingImages(listing, maxImages, broadcast) {
 // ── Re-analyze a single listing ────────────────────────────────────────────
 export async function reanalyzeListing(listingUrl, broadcast) {
   db.clearAnalysisForListing(listingUrl);
-  broadcast({ type: 'scan_progress', message: `Re-analyzing images for listing…` });
-  enqueueAiAnalysis(listingUrl, broadcast);
+  // Remove any existing queue entry for this listing, then re-add
+  _aiQueue = _aiQueue.filter(q => q.listingUrl !== listingUrl);
+  _aiBroadcast = broadcast;
+  _aiQueue.push({ listingUrl });
+  broadcast({ type: 'scan_progress', message: `Re-analyze queued for listing (${db.getUnanalyzedImages(listingUrl).length} images)` });
 }
