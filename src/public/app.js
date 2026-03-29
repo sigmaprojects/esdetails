@@ -86,7 +86,7 @@ document.getElementById('zipInput').addEventListener('keydown', e => { if (e.key
 /* ── Settings ──────────────────────────────────────────────────────────── */
 const SETTING_KEYS = [
   'ollama_url', 'ollama_model', 'api_type', 'api_key',
-  'image_domain', 'max_images', 'image_scale', 'ai_concurrency', 'scan_time', 'ai_prompt'
+  'image_domain', 'max_images', 'image_scale', 'ai_concurrency', 'ai_timeout_seconds', 'scan_time', 'ai_prompt'
 ];
 
 async function loadSettings() {
@@ -297,6 +297,7 @@ async function triggerScan() {
 async function checkScanStatus() {
   const s = await api('/api/scan-status');
   setScanUI(s.running, s.last_scan_at);
+  setAiUI(s.aiRunning);
 }
 
 function setScanUI(running, lastScanAt) {
@@ -340,6 +341,20 @@ async function deleteListing(listingUrl) {
   if (!confirm('Delete this listing and all its images?')) return;
   await api('/api/listings', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url: listingUrl }) });
   loadListings();
+}
+
+/* ── AI Analysis control ───────────────────────────────────────────────── */
+async function stopAi() {
+  await api('/api/ai/stop', { method: 'POST' });
+}
+
+async function resumeAi() {
+  await api('/api/ai/resume', { method: 'POST' });
+}
+
+function setAiUI(running) {
+  document.getElementById('aiStopBtn').style.display = running ? '' : 'none';
+  document.getElementById('aiResumeBtn').style.display = running ? 'none' : '';
 }
 
 /* ── Modal ─────────────────────────────────────────────────────────────── */
@@ -426,7 +441,19 @@ function connectSSE() {
           log.appendChild(p);
           log.scrollTop = log.scrollHeight;
         }
+        setAiUI(true);
         scheduleListingReload();
+        break;
+      case 'ai_status':
+        setAiUI(d.status === 'running');
+        if (d.message) {
+          document.getElementById('progressPanel').style.display = '';
+          const p = document.createElement('p');
+          p.style.color = d.status === 'running' ? 'var(--green)' : 'var(--accent)';
+          p.textContent = d.message;
+          log.appendChild(p);
+          log.scrollTop = log.scrollHeight;
+        }
         break;
       case 'reanalyze_complete':
         loadListings();

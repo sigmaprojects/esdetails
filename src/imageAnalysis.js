@@ -45,12 +45,12 @@ async function fetchBase64(imageUrl, scale = 1) {
  * Call the Ollama native /api/generate endpoint.
  * Expects baseUrl like "http://localhost:11434".
  */
-async function callOllama(baseUrl, model, imageBase64, prompt) {
+async function callOllama(baseUrl, model, imageBase64, prompt, timeoutMs = 300000) {
   const url = baseUrl.replace(/\/$/, '') + '/api/generate';
   const resp = await axios.post(
     url,
     { model, prompt, images: [imageBase64], stream: false },
-    { timeout: 300000 } // 5 min timeout for complex images
+    { timeout: timeoutMs }
   );
   return resp.data.response || '';
 }
@@ -59,7 +59,7 @@ async function callOllama(baseUrl, model, imageBase64, prompt) {
  * Call an OpenAI-compatible endpoint (e.g. open-webui).
  * Expects baseUrl like "http://localhost:3000".
  */
-async function callOpenAICompat(baseUrl, model, imageBase64, apiKey, prompt) {
+async function callOpenAICompat(baseUrl, model, imageBase64, apiKey, prompt, timeoutMs = 300000) {
   const url = baseUrl.replace(/\/$/, '') + '/api/chat/completions';
   const resp = await axios.post(
     url,
@@ -83,7 +83,39 @@ async function callOpenAICompat(baseUrl, model, imageBase64, apiKey, prompt) {
         Authorization: `Bearer ${apiKey || 'ollama'}`,
         'Content-Type': 'application/json',
       },
-      timeout: 90000,
+      timeout: timeoutMs,
+    }
+  );
+  return resp.data.choices?.[0]?.message?.content || '';
+}
+
+/**
+ * Call the OpenRouter API (OpenAI-compatible at openrouter.ai).
+ */
+async function callOpenRouter(model, imageBase64, apiKey, prompt, timeoutMs = 300000) {
+  const resp = await axios.post(
+    'https://openrouter.ai/api/v1/chat/completions',
+    {
+      model,
+      messages: [
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: prompt },
+            {
+              type: 'image_url',
+              image_url: { url: `data:image/jpeg;base64,${imageBase64}` },
+            },
+          ],
+        },
+      ],
+    },
+    {
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      timeout: timeoutMs,
     }
   );
   return resp.data.choices?.[0]?.message?.content || '';
@@ -98,7 +130,9 @@ export async function analyzeSingleImage(imageUrl, config) {
   const prompt = aiPrompt || DEFAULT_PROMPT;
   const b64 = await fetchBase64(imageUrl, imageScale);
   let responseText;
-  if (apiType === 'openai') {
+  if (apiType === 'openrouter') {
+    responseText = await callOpenRouter(ollamaModel, b64, apiKey, prompt);
+  } else if (apiType === 'openai') {
     responseText = await callOpenAICompat(ollamaUrl, ollamaModel, b64, apiKey, prompt);
   } else {
     responseText = await callOllama(ollamaUrl, ollamaModel, b64, prompt);
@@ -289,9 +323,13 @@ export async function analyzeLocalImage(localPath, settings) {
   const prompt = settings.ai_prompt || DEFAULT_PROMPT;
   const ollamaUrl = settings.ollama_url;
   const model = settings.ollama_model;
+  const timeoutMs = (parseInt(settings.ai_timeout_seconds, 10) || 300) * 1000;
 
-  if (settings.api_type === 'openai') {
-    return callOpenAICompat(ollamaUrl, model, base64, settings.api_key, prompt);
+  if (settings.api_type === 'openrouter') {
+    return callOpenRouter(model, base64, settings.api_key, prompt, timeoutMs);
   }
-  return callOllama(ollamaUrl, model, base64, prompt);
+  if (settings.api_type === 'openai') {
+    return callOpenAICompat(ollamaUrl, model, base64, settings.api_key, prompt, timeoutMs);
+  }
+  return callOllama(ollamaUrl, model, base64, prompt, timeoutMs);
 }
