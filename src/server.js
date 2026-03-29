@@ -5,7 +5,7 @@ import fs from 'fs';
 import zipcodes from 'zipcodes';
 
 import * as db from './db.js';
-import { startScheduler, runFullScan, reanalyzeListing, isScanRunning } from './scanner.js';
+import { startScheduler, runFullScan, reanalyzeListing, isScanRunning, stopAiAnalysis, resumeAiAnalysis, isAiRunning } from './scanner.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -136,7 +136,18 @@ app.post('/api/scan', (_req, res) => {
 });
 
 app.get('/api/scan-status', (_req, res) => {
-  res.json({ running: isScanRunning(), last_scan_at: db.getSetting('last_scan_at') || null });
+  res.json({ running: isScanRunning(), aiRunning: isAiRunning(), last_scan_at: db.getSetting('last_scan_at') || null });
+});
+
+// ── AI Analysis control ────────────────────────────────────────────────────
+app.post('/api/ai/stop', (_req, res) => {
+  stopAiAnalysis(broadcast);
+  res.json({ ok: true });
+});
+
+app.post('/api/ai/resume', (_req, res) => {
+  resumeAiAnalysis(broadcast);
+  res.json({ ok: true });
 });
 
 // ── Re-analyze ─────────────────────────────────────────────────────────────

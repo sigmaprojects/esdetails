@@ -41,7 +41,7 @@ db.exec(`
   );
   CREATE TABLE IF NOT EXISTS images (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    listing_url TEXT NOT NULL,
+    listing_url TEXT NOT NULL REFERENCES listings(url) ON DELETE CASCADE,
     remote_url TEXT NOT NULL,
     local_filename TEXT NOT NULL,
     analysis TEXT,
@@ -59,6 +59,34 @@ db.exec(`
 const listCols = db.prepare("PRAGMA table_info(listings)").all().map(c => c.name);
 if (!listCols.includes('scraped_at')) {
   db.exec("ALTER TABLE listings ADD COLUMN scraped_at TEXT");
+}
+
+// Migration: add foreign key constraint to images table if missing
+{
+  const fks = db.prepare("PRAGMA foreign_key_list(images)").all();
+  if (fks.length === 0) {
+    console.log('[DB] Migrating images table to add ON DELETE CASCADE foreign key…');
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS images_new (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        listing_url TEXT NOT NULL REFERENCES listings(url) ON DELETE CASCADE,
+        remote_url TEXT NOT NULL,
+        local_filename TEXT NOT NULL,
+        analysis TEXT,
+        analyzed_at TEXT,
+        created_at TEXT DEFAULT (datetime('now')),
+        UNIQUE(listing_url, remote_url)
+      );
+      INSERT OR IGNORE INTO images_new (id, listing_url, remote_url, local_filename, analysis, analyzed_at, created_at)
+        SELECT id, listing_url, remote_url, local_filename, analysis, analyzed_at, created_at
+        FROM images
+        WHERE listing_url IN (SELECT url FROM listings);
+      DROP TABLE images;
+      ALTER TABLE images_new RENAME TO images;
+    `);
+    // Clean up orphaned image files
+    console.log('[DB] Migration complete. Orphaned images excluded.');
+  }
 }
 
 // ── Default settings ───────────────────────────────────────────────────────
@@ -126,6 +154,7 @@ const stmts = {
   updateAnalysis: db.prepare('UPDATE images SET analysis = ?, analyzed_at = datetime(\'now\') WHERE id = ?'),
   clearAnalysisForListing: db.prepare('UPDATE images SET analysis = NULL, analyzed_at = NULL WHERE listing_url = ?'),
   getUnanalyzedImages: db.prepare('SELECT * FROM images WHERE listing_url = ? AND analyzed_at IS NULL'),
+  listingsWithUnanalyzed: db.prepare('SELECT DISTINCT listing_url FROM images WHERE analyzed_at IS NULL'),
 
   deleteListing: db.prepare('DELETE FROM listings WHERE url = ?'),
   deleteImagesByListing: db.prepare('DELETE FROM images WHERE listing_url = ?'),
@@ -156,9 +185,10 @@ export function addImage(data) { return stmts.addImage.run(data); }
 export function updateAnalysis(id, analysis) { return stmts.updateAnalysis.run(analysis, id); }
 export function clearAnalysisForListing(url) { return stmts.clearAnalysisForListing.run(url); }
 export function getUnanalyzedImages(url) { return stmts.getUnanalyzedImages.all(url); }
+export function listingsWithUnanalyzed() { return stmts.listingsWithUnanalyzed.all().map(r => r.listing_url); }
 export function deleteListing(url) {
   const imgs = stmts.getImagesByListing.all(url);
-  stmts.deleteImagesByListing.run(url);
+  // CASCADE will delete images rows, but we fetch them first for file cleanup
   stmts.deleteListing.run(url);
   return imgs;
 }

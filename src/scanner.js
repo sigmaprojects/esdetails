@@ -14,12 +14,13 @@ const IMAGE_CACHE_MS  = (parseFloat(process.env.IMAGE_CACHE_DAYS) || 7) * 86400_
 let _aiQueue = [];       // [{ listingUrl, settings, broadcast }]
 let _aiRunning = false;
 let _aiBroadcast = null;
+let _aiStopped = false;
 
 async function _drainAiQueue() {
   if (_aiRunning) return;  // already draining
   _aiRunning = true;
 
-  while (_aiQueue.length > 0) {
+  while (_aiQueue.length > 0 && !_aiStopped) {
     // Re-read settings each batch so concurrency changes apply immediately
     const settings = db.getAllSettings();
     const concurrency = Math.max(1, parseInt(settings.ai_concurrency, 10) || 1);
@@ -48,7 +49,7 @@ async function _drainAiQueue() {
 
     let cursor = 0;
     async function worker() {
-      while (cursor < work.length) {
+      while (cursor < work.length && !_aiStopped) {
         const idx = cursor++;
         const { listingUrl, img } = work[idx];
         try {
@@ -73,17 +74,43 @@ async function _drainAiQueue() {
     }
 
     await Promise.all(Array.from({ length: Math.min(concurrency, work.length) }, () => worker()));
+
+    if (_aiStopped) {
+      broadcast({ type: 'ai_status', status: 'stopped', message: '⏹ AI analysis stopped' });
+      break;
+    }
   }
 
   _aiRunning = false;
 }
 
 function enqueueAiAnalysis(listingUrl, broadcast) {
+  if (_aiStopped) return;  // don't enqueue when stopped
   _aiBroadcast = broadcast;
   _aiQueue.push({ listingUrl });
   // Start draining (no-op if already running)
   _drainAiQueue().catch(err => console.error('[AI Queue] Error:', err));
 }
+
+export function stopAiAnalysis(broadcast) {
+  _aiStopped = true;
+  _aiQueue = [];
+  broadcast({ type: 'ai_status', status: 'stopped', message: '⏹ AI analysis stopped by user' });
+}
+
+export function resumeAiAnalysis(broadcast) {
+  _aiStopped = false;
+  _aiBroadcast = broadcast;
+  // Re-queue all listings that have unanalyzed images
+  const urls = db.listingsWithUnanalyzed();
+  for (const url of urls) {
+    _aiQueue.push({ listingUrl: url });
+  }
+  broadcast({ type: 'ai_status', status: 'running', message: `▶ AI analysis resumed — ${urls.length} listing${urls.length !== 1 ? 's' : ''} queued` });
+  _drainAiQueue().catch(err => console.error('[AI Queue] Error:', err));
+}
+
+export function isAiRunning() { return _aiRunning && !_aiStopped; }
 
 // ── Scheduler ──────────────────────────────────────────────────────────────
 

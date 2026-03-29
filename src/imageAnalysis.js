@@ -90,6 +90,38 @@ async function callOpenAICompat(baseUrl, model, imageBase64, apiKey, prompt, tim
 }
 
 /**
+ * Call the OpenRouter API (OpenAI-compatible at openrouter.ai).
+ */
+async function callOpenRouter(model, imageBase64, apiKey, prompt, timeoutMs = 300000) {
+  const resp = await axios.post(
+    'https://openrouter.ai/api/v1/chat/completions',
+    {
+      model,
+      messages: [
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: prompt },
+            {
+              type: 'image_url',
+              image_url: { url: `data:image/jpeg;base64,${imageBase64}` },
+            },
+          ],
+        },
+      ],
+    },
+    {
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      timeout: timeoutMs,
+    }
+  );
+  return resp.data.choices?.[0]?.message?.content || '';
+}
+
+/**
  * Analyze a single image and return { objects, error }.
  * Exported for the retry endpoint.
  */
@@ -98,7 +130,9 @@ export async function analyzeSingleImage(imageUrl, config) {
   const prompt = aiPrompt || DEFAULT_PROMPT;
   const b64 = await fetchBase64(imageUrl, imageScale);
   let responseText;
-  if (apiType === 'openai') {
+  if (apiType === 'openrouter') {
+    responseText = await callOpenRouter(ollamaModel, b64, apiKey, prompt);
+  } else if (apiType === 'openai') {
     responseText = await callOpenAICompat(ollamaUrl, ollamaModel, b64, apiKey, prompt);
   } else {
     responseText = await callOllama(ollamaUrl, ollamaModel, b64, prompt);
@@ -289,9 +323,11 @@ export async function analyzeLocalImage(localPath, settings) {
   const prompt = settings.ai_prompt || DEFAULT_PROMPT;
   const ollamaUrl = settings.ollama_url;
   const model = settings.ollama_model;
-
   const timeoutMs = (parseInt(settings.ai_timeout_seconds, 10) || 300) * 1000;
 
+  if (settings.api_type === 'openrouter') {
+    return callOpenRouter(model, base64, settings.api_key, prompt, timeoutMs);
+  }
   if (settings.api_type === 'openai') {
     return callOpenAICompat(ollamaUrl, model, base64, settings.api_key, prompt, timeoutMs);
   }

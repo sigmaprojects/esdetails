@@ -130,6 +130,8 @@
   </div>
   <div class="header-actions">
     <button id="scanBtn" onclick="triggerScan()">Scan Now</button>
+    <button id="aiStopBtn" onclick="stopAi()" style="display:none;background:var(--red,#c0392b);color:#fff">Stop AI</button>
+    <button id="aiResumeBtn" onclick="resumeAi()">Resume AI</button>
   </div>
 </header>
 
@@ -156,13 +158,15 @@
       <div><label>Ollama URL</label><input id="s_ollama_url" /></div>
       <div><label>Model</label><input id="s_ollama_model" /></div>
       <div><label>API Type</label>
-        <select id="s_api_type"><option value="native">Ollama Native</option><option value="openai">OpenAI Compatible</option></select>
+        <select id="s_api_type"><option value="native">Ollama Native</option><option value="openai">OpenAI Compatible</option><option value="openrouter">OpenRouter</option></select>
       </div>
       <div><label>API Key</label><input id="s_api_key" type="password" /></div>
       <div><label>Image Domain Filter</label><input id="s_image_domain" /></div>
       <div><label>Max Images / Listing</label><input id="s_max_images" type="number" min="0" /></div>
       <div><label>Image Scale</label><input id="s_image_scale" type="number" step="0.1" min="0.1" max="1" /></div>
-      <div><label>AI Concurrency</label><input id="s_ai_concurrency" type="number" min="1" max="10" /></div>        <div><label>AI Timeout (seconds)</label><input id="s_ai_timeout_seconds" type="number" min="10" step="10" /></div>      <div><label>Daily Scan Time</label><input id="s_scan_time" type="time" value="05:00" /></div>
+      <div><label>AI Concurrency</label><input id="s_ai_concurrency" type="number" min="1" max="10" /></div>
+      <div><label>AI Timeout (seconds)</label><input id="s_ai_timeout_seconds" type="number" min="10" step="10" /></div>
+      <div><label>Daily Scan Time</label><input id="s_scan_time" type="time" value="05:00" /></div>
       <div class="full-width"><label>AI Prompt</label><textarea id="s_ai_prompt"></textarea></div>
     </div>
     <button style="margin-top:8px;" onclick="saveSettings()">Save Settings</button>
