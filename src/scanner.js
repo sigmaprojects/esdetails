@@ -125,11 +125,20 @@ function msUntilNext(timeStr) {
 export function startScheduler(scanTime, broadcast) {
   stopScheduler();
   const schedule = () => {
-    const ms = msUntilNext(scanTime);
+    // Re-read scan time from DB each cycle in case it changed
+    const currentTime = db.getSetting('scan_time') || scanTime;
+    const ms = msUntilNext(currentTime);
     const nextDate = new Date(Date.now() + ms);
-    console.log(`[Scheduler] Next scan at ${scanTime} (in ${Math.round(ms / 60000)} min — ${nextDate.toLocaleString()})`);
-    intervalTimer = setTimeout(() => {
-      runFullScan(broadcast).catch(err => console.error('[Scheduler] Scan error:', err));
+    console.log(`[Scheduler] Next scan at ${currentTime} (in ${Math.round(ms / 60000)} min — ${nextDate.toLocaleString()})`);
+    intervalTimer = setTimeout(async () => {
+      console.log(`[Scheduler] Daily scan triggered at ${new Date().toLocaleString()}`);
+      try {
+        await runFullScan(broadcast);
+        // After scheduled scan completes, auto-resume AI analysis
+        resumeAiAnalysis(broadcast);
+      } catch (err) {
+        console.error('[Scheduler] Scan error:', err);
+      }
       schedule();
     }, ms);
   };
