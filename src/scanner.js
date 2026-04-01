@@ -233,9 +233,13 @@ export async function runFullScan(broadcast) {
       // Filter out listings that were scraped recently
       const now = Date.now();
       const staleUrls = listingUrls.filter(url => {
-        const scrapedAt = db.getListingScrapedAt(url);
-        if (!scrapedAt) return true; // never scraped
-        return (now - new Date(scrapedAt + 'Z').getTime()) > LISTING_CACHE_MS;
+        const meta = db.getListingMeta(url);
+        if (!meta || !meta.scraped_at) return true; // never scraped
+        // Never re-scrape listings whose end date has passed
+        if (meta.end_date && meta.end_date < new Date().toISOString().slice(0, 10)) return false;
+        // Always re-scrape if address is missing
+        if (!meta.address) return true;
+        return (now - new Date(meta.scraped_at + 'Z').getTime()) > LISTING_CACHE_MS;
       });
       const cachedPages = listingUrls.length - staleUrls.length;
       if (cachedPages > 0) {

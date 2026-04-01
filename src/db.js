@@ -196,6 +196,8 @@ const stmts = {
   `),
 
   getListingScrapedAt: db.prepare('SELECT scraped_at FROM listings WHERE url = ?'),
+  getListingAddress: db.prepare('SELECT address FROM listings WHERE url = ?'),
+  getListingMeta: db.prepare('SELECT scraped_at, address, end_date FROM listings WHERE url = ?'),
 
   getListingsCurrent: db.prepare(`
     SELECT * FROM listings
@@ -249,6 +251,8 @@ export function removeZipcode(id) { return stmts.removeZipcode.run(id); }
 
 export function upsertListing(data) { return stmts.upsertListing.run(data); }
 export function getListingScrapedAt(url) { const r = stmts.getListingScrapedAt.get(url); return r ? r.scraped_at : null; }
+export function getListingAddress(url) { const r = stmts.getListingAddress.get(url); return r ? r.address : null; }
+export function getListingMeta(url) { return stmts.getListingMeta.get(url) || null; }
 export function getListings(from, to) {
   if (from && to) return stmts.getListingsRange.all({ from, to });
   if (from) return stmts.getListingsRange.all({ from, to: '2099-12-31' });
