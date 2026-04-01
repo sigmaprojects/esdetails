@@ -12,6 +12,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
+app.get('/admin/', (req, res) => res.sendFile(path.join(__dirname, 'public', 'admin.html')));
 app.use('/images', express.static(db.IMAGES_DIR, {
   maxAge: '12h',
   immutable: true,

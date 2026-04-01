@@ -1,8 +1,5 @@
 /* ── State ─────────────────────────────────────────────────────────────── */
 let listings = [];
-let settings = {};
-let zipcodes = [];
-let scanning = false;
 let sortCol = null;   // 'title' | 'dates' | 'address' | null
 let sortDir = 1;      // 1 = asc, -1 = desc
 let zipDistances = {};  // { zip: miles } cached from backend
@@ -20,7 +17,7 @@ const listingsArea = document.getElementById('listingsArea');
   filterFrom.addEventListener('change', loadListings);
   filterTo.addEventListener('change', loadListings);
 
-  await Promise.all([loadZipcodes(), loadSettings(), loadListings(), checkScanStatus()]);
+  await loadListings();
   connectSSE();
 })();
 
@@ -28,83 +25,6 @@ const listingsArea = document.getElementById('listingsArea');
 async function api(url, opts) {
   const res = await fetch(url, opts);
   return res.json();
-}
-
-/* ── Zip codes ─────────────────────────────────────────────────────────── */
-async function loadZipcodes() {
-  zipcodes = await api('/api/zipcodes');
-  renderZipcodes();
-}
-
-function renderZipcodes() {
-  const el = document.getElementById('zipRows');
-  el.innerHTML = zipcodes.map(z =>
-    `<tr>
-      <td><input type="text" value="${z.zipcode}" maxlength="5" style="width:80px" data-id="${z.id}" class="zip-edit"></td>
-      <td style="display:flex;align-items:center;gap:.5rem">
-        <input type="range" min="5" max="100" step="5" value="${z.distance || 10}" data-id="${z.id}" class="dist-edit" oninput="this.nextElementSibling.textContent=this.value+'mi'">
-        <span>${z.distance || 10}mi</span>
-      </td>
-      <td>
-        <button onclick="updateZipcode(${z.id})">Save</button>
-        <button onclick="removeZipcode(${z.id})">&times;</button>
-      </td>
-    </tr>`
-  ).join('');
-}
-
-async function addZipcode() {
-  const inp = document.getElementById('zipInput');
-  const distInp = document.getElementById('distInput');
-  const zip = inp.value.trim();
-  if (!/^\d{5}$/.test(zip)) return;
-  const distance = parseInt(distInp.value, 10) || 10;
-  await api('/api/zipcodes', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ zipcode: zip, distance }) });
-  inp.value = '';
-  await loadZipcodes();
-}
-
-async function updateZipcode(id) {
-  const zipEl = document.querySelector(`.zip-edit[data-id="${id}"]`);
-  const distEl = document.querySelector(`.dist-edit[data-id="${id}"]`);
-  if (!zipEl || !distEl) return;
-  const zipcode = zipEl.value.trim();
-  const distance = parseInt(distEl.value, 10) || 10;
-  if (!/^\d{5}$/.test(zipcode)) return;
-  await api(`/api/zipcodes/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ zipcode, distance }) });
-  await loadZipcodes();
-}
-
-async function removeZipcode(id) {
-  await api(`/api/zipcodes/${id}`, { method: 'DELETE' });
-  await loadZipcodes();
-}
-
-// Allow Enter key in zip input
-document.getElementById('zipInput').addEventListener('keydown', e => { if (e.key === 'Enter') addZipcode(); });
-
-/* ── Settings ──────────────────────────────────────────────────────────── */
-const SETTING_KEYS = [
-  'ollama_url', 'ollama_model', 'api_type', 'api_key',
-  'image_domain', 'max_images', 'image_scale', 'ai_concurrency', 'ai_timeout_seconds', 'scan_time', 'ai_prompt'
-];
-
-async function loadSettings() {
-  settings = await api('/api/settings');
-  for (const key of SETTING_KEYS) {
-    const el = document.getElementById('s_' + key);
-    if (el) el.value = settings[key] || '';
-  }
-}
-
-async function saveSettings() {
-  const body = {};
-  for (const key of SETTING_KEYS) {
-    const el = document.getElementById('s_' + key);
-    if (el) body[key] = el.value;
-  }
-  await api('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-  settings = body;
 }
 
 /* ── Listings ──────────────────────────────────────────────────────────── */
@@ -199,8 +119,6 @@ function renderListings() {
           </div>
           <div class="listing-actions">
             ${hasFilter ? `<button class="btn-sm show-all-btn" onclick="toggleShowAll(this)">Only showing images matching &quot;${esc(text)}&quot; — click to show all</button>` : ''}
-            <button class="btn-sm" onclick="reanalyze('${esc(l.url)}')">Re-analyze Images</button>
-            <button class="btn-sm" style="background:var(--red,#c0392b);color:#fff" onclick="deleteListing('${esc(l.url)}')">Delete Listing</button>
           </div>
           <div class="image-grid">
             ${l.images.map(img => {
@@ -209,6 +127,7 @@ function renderListings() {
               const hidden = hasFilter && !isMatch;
               return `
               <div class="image-card${isMatch ? ' match' : ''}${hidden ? ' filtered-out' : ''}">
+                ${img.analyzed_at ? `<span class="image-info">i<span class="info-tooltip"><b>Analyzed:</b> ${esc(img.analyzed_at)}<br><b>API:</b> ${esc(img.analysis_api || '—')}<br><b>Model:</b> ${esc(img.analysis_model || '—')}<br><b>Prompt:</b> ${esc((img.analysis_prompt || '—').substring(0, 80))}${(img.analysis_prompt || '').length > 80 ? '…' : ''}</span></span>` : ''}
                 <img src="${esc(img.local_url)}" loading="lazy" data-analysis="${esc(analysisText)}" onclick="openModal(this)" />
                 ${img.analyzed_at
                   ? `<div class="analysis">${highlightText(analysisText, text)}</div>`
@@ -288,76 +207,7 @@ function formatDates(raw, startISO, endISO) {
   return raw || '';
 }
 
-/* ── Scan ──────────────────────────────────────────────────────────────── */
-async function triggerScan() {
-  const res = await api('/api/scan', { method: 'POST' });
-  if (res.error) alert(res.error);
-}
-
-async function checkScanStatus() {
-  const s = await api('/api/scan-status');
-  setScanUI(s.running, s.last_scan_at);
-  setAiUI(s.aiRunning);
-}
-
-function setScanUI(running, lastScanAt) {
-  scanning = running;
-  const dot = document.getElementById('scanDot');
-  const text = document.getElementById('scanText');
-  const btn = document.getElementById('scanBtn');
-  const panel = document.getElementById('progressPanel');
-
-  dot.className = 'dot' + (running ? ' running' : '');
-  btn.disabled = running;
-
-  if (running) {
-    text.textContent = 'Scanning…';
-    panel.style.display = '';
-  } else {
-    if (lastScanAt) {
-      const ago = timeAgo(new Date(lastScanAt));
-      text.textContent = `Last scan: ${ago}`;
-    } else {
-      text.textContent = 'No scans yet';
-    }
-    // Keep progress panel visible briefly so user can see final messages
-  }
-}
-
-function timeAgo(date) {
-  const s = Math.floor((Date.now() - date.getTime()) / 1000);
-  if (s < 60) return 'just now';
-  if (s < 3600) return Math.floor(s / 60) + 'm ago';
-  if (s < 86400) return Math.floor(s / 3600) + 'h ago';
-  return Math.floor(s / 86400) + 'd ago';
-}
-
-/* ── Re-analyze ────────────────────────────────────────────────────────── */
-async function reanalyze(listingUrl) {
-  await api('/api/reanalyze', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ listingUrl }) });
-}
-
-async function deleteListing(listingUrl) {
-  if (!confirm('Delete this listing and all its images?')) return;
-  await api('/api/listings', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url: listingUrl }) });
-  loadListings();
-}
-
-/* ── AI Analysis control ───────────────────────────────────────────────── */
-async function stopAi() {
-  await api('/api/ai/stop', { method: 'POST' });
-}
-
-async function resumeAi() {
-  await api('/api/ai/resume', { method: 'POST' });
-}
-
-function setAiUI(running) {
-  document.getElementById('aiStopBtn').style.display = running ? '' : 'none';
-  document.getElementById('aiResumeBtn').style.display = running ? 'none' : '';
-}
-
-/* ── Modal ─────────────────────────────────────────────────────────────── */
+/* ── SSE ───────────────────────────────────────────────────────────────── */
 function openModal(imgEl) {
   document.getElementById('modalImg').src = imgEl.src;
   document.getElementById('modalAnalysis').textContent = imgEl.dataset.analysis || '';
@@ -380,80 +230,21 @@ function scheduleListingReload(delayMs = 2000) {
 
 function connectSSE() {
   const es = new EventSource('/api/events');
-  const log = document.getElementById('progress-log');
 
   es.onmessage = (e) => {
     const d = JSON.parse(e.data);
     switch (d.type) {
       case 'scan_status':
-        setScanUI(d.status === 'running', null);
-        if (d.status === 'idle') {
-          loadListings();
-        } else if (d.status === 'running') {
-          log.innerHTML = '';
-        }
-        break;
-      case 'scan_progress':
-        document.getElementById('progressPanel').style.display = '';
-        if (d.message) {
-          const p = document.createElement('p');
-          p.textContent = d.message;
-          if (d.message.includes('⚠')) p.style.color = 'var(--red)';
-          else if (d.message.includes('✅')) p.style.color = 'var(--green)';
-          else if (d.message.includes('🤖') || d.message.includes('🔍')) p.style.color = 'var(--accent)';
-          else if (d.message.includes('cached')) p.style.color = '#8b8fa3';
-          log.appendChild(p);
-          log.scrollTop = log.scrollHeight;
-          if (d.message.includes('Downloaded')) {
-            scheduleListingReload();
-          }
-        }
+        if (d.status === 'idle') loadListings();
         break;
       case 'listing_saved':
-        if (d.message) {
-          const p = document.createElement('p');
-          p.style.color = 'var(--green)';
-          p.textContent = d.message;
-          log.appendChild(p);
-          log.scrollTop = log.scrollHeight;
-        }
-        // Immediately refresh listings so they appear in the UI
         scheduleListingReload(500);
         break;
       case 'scan_complete':
-        if (d.message) {
-          const p = document.createElement('p');
-          p.style.color = 'var(--green)';
-          p.textContent = '✓ ' + d.message;
-          log.appendChild(p);
-          log.scrollTop = log.scrollHeight;
-        }
         loadListings();
-        checkScanStatus();
-        break;
-      case 'scan_error':
-        log.innerHTML += `<p style="color:var(--red)">Error: ${esc(d.message)}</p>`;
         break;
       case 'image_analyzed':
-        if (d.message) {
-          const p = document.createElement('p');
-          p.textContent = d.message;
-          log.appendChild(p);
-          log.scrollTop = log.scrollHeight;
-        }
-        setAiUI(true);
         scheduleListingReload();
-        break;
-      case 'ai_status':
-        setAiUI(d.status === 'running');
-        if (d.message) {
-          document.getElementById('progressPanel').style.display = '';
-          const p = document.createElement('p');
-          p.style.color = d.status === 'running' ? 'var(--green)' : 'var(--accent)';
-          p.textContent = d.message;
-          log.appendChild(p);
-          log.scrollTop = log.scrollHeight;
-        }
         break;
       case 'reanalyze_complete':
         loadListings();

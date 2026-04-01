@@ -44,7 +44,9 @@ async function _drainAiQueue() {
     const ollamaModel = settings.ollama_model;
     if (!ollamaUrl || !ollamaModel) continue;
 
-    const apiType = settings.api_type || 'ollama';
+    const apiType = settings.api_type || 'native';
+    const aiPrompt = settings.ai_prompt || '';
+    const analysisMeta = { api: apiType, model: ollamaModel, prompt: aiPrompt };
     broadcast({ type: 'scan_progress', message: `🤖 AI queue: ${work.length} image${work.length !== 1 ? 's' : ''} to analyze (concurrency: ${concurrency})` });
 
     let cursor = 0;
@@ -56,7 +58,7 @@ async function _drainAiQueue() {
           const localPath = path.join(db.IMAGES_DIR, img.local_filename);
           broadcast({ type: 'scan_progress', message: `  🔍 AI analyzing image ${idx + 1}/${work.length}…` });
           const analysis = await analyzeLocalImage(localPath, settings);
-          db.updateAnalysis(img.id, analysis);
+          db.updateAnalysis(img.id, analysis, analysisMeta);
           const itemCount = analysis.split('\n').filter(l => l.trim()).length;
           broadcast({
             type: 'image_analyzed',
@@ -67,7 +69,7 @@ async function _drainAiQueue() {
           });
         } catch (err) {
           console.error(`[Scanner] Analysis failed for image ${img.id}: ${err.message}`);
-          db.updateAnalysis(img.id, `ERROR: ${err.message}`);
+          db.updateAnalysis(img.id, `ERROR: ${err.message}`, analysisMeta);
           broadcast({ type: 'scan_progress', message: `  ⚠ AI failed for image ${idx + 1}/${work.length}: ${err.message}` });
         }
       }

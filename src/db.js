@@ -61,6 +61,14 @@ if (!listCols.includes('scraped_at')) {
   db.exec("ALTER TABLE listings ADD COLUMN scraped_at TEXT");
 }
 
+// Migration: add analysis metadata columns to images
+{
+  const imgCols = db.prepare("PRAGMA table_info(images)").all().map(c => c.name);
+  if (!imgCols.includes('analysis_api'))   db.exec("ALTER TABLE images ADD COLUMN analysis_api TEXT");
+  if (!imgCols.includes('analysis_model')) db.exec("ALTER TABLE images ADD COLUMN analysis_model TEXT");
+  if (!imgCols.includes('analysis_prompt')) db.exec("ALTER TABLE images ADD COLUMN analysis_prompt TEXT");
+}
+
 // Migration: add foreign key constraint to images table if missing
 {
   const fks = db.prepare("PRAGMA foreign_key_list(images)").all();
@@ -91,17 +99,17 @@ if (!listCols.includes('scraped_at')) {
 
 // ── Default settings ───────────────────────────────────────────────────────
 const DEFAULTS = {
-  scan_time: '05:00',
+  scan_time: '06:20',
   image_domain: 'picturescdn.estatesales.net',
   ollama_url: 'http://192.168.1.34:11434',
   ollama_model: 'llava-llama3:8b',
   api_type: 'native',
   api_key: '',
-  max_images: '50',
+  max_images: '100000',
   image_scale: '0.5',
   ai_concurrency: '1',
-  ai_timeout_seconds: '300',
-  ai_prompt: 'List every item in this image. For each item, provide only the name and the material/color.\nRules:\nDo NOT mention brands, models, or \'generic\'.\nDo NOT describe condition.\nFormat: [Item Name]: [Material/Color]\nBe extremely brief. Use one line per item.',
+  ai_timeout_seconds: '500',
+  ai_prompt: 'List every item in this image. For each item, provide only the name and the material/color.\nRules:\nDo NOT mention brands, models, or \'generic\' unless you are extremely confident in the brand or model.\nDo NOT mention characters unless you are extremely confident what character is portrayed.\nDo NOT describe condition.\nFormat: [Brand (if any)] [Model (if any)] [Character (if any)] [Item Name]: [Material/Color]\nDo NOT include the brackets [] if there is no brand or model or character or unknown material/color, do NOT include empty brackets in the format.\nBe extremely brief. Use one line per item.',
   last_scan_at: '',
 };
 
@@ -151,8 +159,8 @@ const stmts = {
     INSERT OR IGNORE INTO images (listing_url, remote_url, local_filename)
     VALUES (@listing_url, @remote_url, @local_filename)
   `),
-  updateAnalysis: db.prepare('UPDATE images SET analysis = ?, analyzed_at = datetime(\'now\') WHERE id = ?'),
-  clearAnalysisForListing: db.prepare('UPDATE images SET analysis = NULL, analyzed_at = NULL WHERE listing_url = ?'),
+  updateAnalysis: db.prepare('UPDATE images SET analysis = ?, analyzed_at = datetime(\'now\'), analysis_api = ?, analysis_model = ?, analysis_prompt = ? WHERE id = ?'),
+  clearAnalysisForListing: db.prepare('UPDATE images SET analysis = NULL, analyzed_at = NULL, analysis_api = NULL, analysis_model = NULL, analysis_prompt = NULL WHERE listing_url = ?'),
   getUnanalyzedImages: db.prepare('SELECT * FROM images WHERE listing_url = ? AND analyzed_at IS NULL'),
   listingsWithUnanalyzed: db.prepare('SELECT DISTINCT listing_url FROM images WHERE analyzed_at IS NULL'),
 
@@ -182,7 +190,7 @@ export function getAllListings() { return stmts.getListingsAll.all(); }
 export function getImagesByListing(url) { return stmts.getImagesByListing.all(url); }
 export function imageExists(listingUrl, remoteUrl) { return !!stmts.imageExists.get(listingUrl, remoteUrl); }
 export function addImage(data) { return stmts.addImage.run(data); }
-export function updateAnalysis(id, analysis) { return stmts.updateAnalysis.run(analysis, id); }
+export function updateAnalysis(id, analysis, meta = {}) { return stmts.updateAnalysis.run(analysis, meta.api || null, meta.model || null, meta.prompt || null, id); }
 export function clearAnalysisForListing(url) { return stmts.clearAnalysisForListing.run(url); }
 export function getUnanalyzedImages(url) { return stmts.getUnanalyzedImages.all(url); }
 export function listingsWithUnanalyzed() { return stmts.listingsWithUnanalyzed.all().map(r => r.listing_url); }

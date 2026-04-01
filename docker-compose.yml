@@ -5,12 +5,12 @@ services:
     build: .
     image: sigmaprojects/esdetails:latest
     ports:
-      - "3000:3000"
+      - "3253:3253"
     volumes:
       - esdetails-data:/data
     environment:
       - NODE_ENV=production
-      - PORT=3000
+      - PORT=3253
       - DATA_DIR=/data
       # Default Ollama URL — points to the Docker host so the container can reach
       # an Ollama instance running on the host machine.
@@ -24,7 +24,7 @@ services:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3253/', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
       interval: 30s
       timeout: 10s
       retries: 3

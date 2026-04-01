@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Estate Sale Finder</title>
+<title>Estate Sale Finder – Admin</title>
 <style>
   :root {
     --bg: #f5f0eb; --surface: #ffffff; --border: #e2ddd7; --text: #3d3529;
@@ -17,6 +17,12 @@
 
   header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 16px 24px; display: flex; align-items: center; gap: 16px; flex-wrap: wrap; box-shadow: var(--shadow); }
   header h1 { font-size: 1.4rem; font-weight: 700; white-space: nowrap; color: var(--accent2); letter-spacing: -0.01em; }
+  header h1 a { color: inherit; text-decoration: none; }
+  header h1 a:hover { text-decoration: underline; }
+  .scan-indicator { font-size: 0.85rem; color: var(--muted); display: flex; align-items: center; gap: 8px; }
+  .scan-indicator .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--green); box-shadow: 0 0 0 3px var(--green-soft); }
+  .scan-indicator .dot.running { background: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); animation: pulse 1.2s ease-in-out infinite; }
+  @keyframes pulse { 0%,100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.5; transform: scale(0.85); } }
   .header-actions { margin-left: auto; display: flex; gap: 8px; }
 
   .panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); margin: 16px 20px; padding: 20px; box-shadow: var(--shadow); }
@@ -40,16 +46,6 @@
   .zip-table input[type="text"]:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
   .zip-table input[type="range"] { width: 100px; vertical-align: middle; accent-color: var(--accent); }
   .zip-table .dist-val { display: inline-block; width: 35px; text-align: right; font-size: 0.8rem; color: var(--muted); }
-
-  .filter-bar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin: 16px 20px; background: var(--surface); padding: 14px 18px; border-radius: var(--radius); border: 1px solid var(--border); box-shadow: var(--shadow); }
-  .filter-bar label { font-size: 0.82rem; color: var(--muted); font-weight: 500; }
-  .filter-bar input[type="date"] { padding: 6px 10px; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; color: var(--text); font-size: 0.85rem; }
-  .filter-bar input[type="date"]:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
-  .filter-bar input[type="text"] { padding: 6px 12px; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; color: var(--text); font-size: 0.85rem; flex: 1; min-width: 150px; }
-  .filter-bar input[type="text"]:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
-  .filter-bar input[type="number"] { padding: 6px 10px; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; color: var(--text); font-size: 0.85rem; -moz-appearance: textfield; }
-  .filter-bar input[type="number"]:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
-  .filter-bar input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; }
 
   button, .btn { padding: 8px 16px; border: none; border-radius: 8px; background: var(--accent); color: #fff; cursor: pointer; font-size: 0.85rem; font-weight: 500; transition: all 0.15s ease; }
   button:hover { background: var(--accent2); transform: translateY(-1px); box-shadow: var(--shadow); }
@@ -92,19 +88,13 @@
   .listing-address a { color: var(--accent); text-decoration: none; font-weight: 500; }
   .listing-address a:hover { text-decoration: underline; }
   .listing-actions { margin-bottom: 12px; display: flex; gap: 8px; justify-content: flex-end; }
-  .listing-actions .show-all-btn { margin-right: auto; background: var(--accent-soft); color: var(--accent); border: 1px solid var(--accent); font-size: 0.78rem; cursor: pointer; padding: 4px 10px; border-radius: var(--radius); }
-  .listing-actions .show-all-btn:hover { background: var(--accent); color: #fff; }
 
-  .image-card.filtered-out { display: none; }
-  .image-grid.show-all .image-card.filtered-out { display: block; }
   .image-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; }
   .image-card { background: var(--bg); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; transition: transform 0.15s ease, box-shadow 0.15s ease; }
   .image-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-md); }
   .image-card img { width: 100%; aspect-ratio: 4/3; object-fit: cover; cursor: pointer; display: block; }
   .image-card .analysis { padding: 8px 10px; font-size: 0.78rem; color: var(--muted); max-height: 80px; overflow-y: auto; white-space: pre-wrap; line-height: 1.4; }
   .image-card .pending { padding: 8px 10px; font-size: 0.78rem; color: var(--accent); font-style: italic; }
-  .image-card.match { border: 2px solid var(--accent); box-shadow: 0 0 12px rgba(194,112,62,0.2); }
-  mark.highlight { background: #fce4b8; color: var(--text); border-radius: 2px; padding: 0 3px; }
 
   .image-card { position: relative; }
   .image-info { position: absolute; top: 6px; right: 6px; width: 20px; height: 20px; border-radius: 50%; background: rgba(0,0,0,0.55); color: #fff; font-size: 12px; font-weight: 700; font-style: italic; font-family: Georgia, serif; display: flex; align-items: center; justify-content: center; cursor: default; z-index: 2; line-height: 1; }
@@ -126,19 +116,60 @@
 <body>
 
 <header>
-  <h1>Estate Sale Finder</h1>
-  <div class="header-actions" style="margin-left:auto;">
-    <a href="/admin/" class="btn-outline" style="text-decoration:none;display:inline-flex;align-items:center;">Admin</a>
+  <h1><a href="/">Estate Sale Finder</a> — Admin</h1>
+  <div class="scan-indicator" id="scanIndicator">
+    <span class="dot" id="scanDot"></span>
+    <span id="scanText">Idle</span>
+  </div>
+  <div class="header-actions">
+    <button id="scanBtn" onclick="triggerScan()">Scan Now</button>
+    <button id="aiStopBtn" onclick="stopAi()" style="display:none;background:var(--red,#c0392b);color:#fff">Stop AI</button>
+    <button id="aiResumeBtn" onclick="resumeAi()">Resume AI</button>
   </div>
 </header>
 
-<!-- Filter bar -->
-<div class="filter-bar">
-  <label>From:</label><input type="date" id="filterFrom" />
-  <label>To:</label><input type="date" id="filterTo" />
-  <button class="btn-outline btn-sm" onclick="resetDates()">Reset</button>
-  <input type="text" id="filterText" placeholder="Search for items, furniture, etc…" oninput="applyTextFilter()" />
-  <input type="number" id="filterZip" placeholder="Near zip" maxlength="5" style="width:90px" />
+<!-- Zip Codes -->
+<div class="panel">
+  <h2>Your Search Areas</h2>
+  <table class="zip-table" id="zipTable">
+    <thead><tr><th>Zip Code</th><th>Search Radius</th><th></th></tr></thead>
+    <tbody id="zipRows"></tbody>
+  </table>
+  <div class="zip-add" style="margin-top:10px;display:flex;gap:6px;align-items:center;">
+    <input type="text" id="zipInput" placeholder="e.g. 91748" maxlength="5" pattern="\d{5}" />
+    <input type="range" id="distInput" min="1" max="200" value="10" oninput="document.getElementById('distLabel').textContent=this.value+' mi'" />
+    <span id="distLabel" style="font-size:0.82rem;color:var(--muted);width:40px">10 mi</span>
+    <button onclick="addZipcode()">Add</button>
+  </div>
+</div>
+
+<!-- Settings -->
+<div class="panel">
+  <details open>
+    <summary>Settings</summary>
+    <div class="settings-grid" style="margin-top:10px;" id="settingsForm">
+      <div><label>Ollama URL</label><input id="s_ollama_url" /></div>
+      <div><label>Model</label><input id="s_ollama_model" /></div>
+      <div><label>API Type</label>
+        <select id="s_api_type"><option value="native">Ollama Native</option><option value="openai">OpenAI Compatible</option><option value="openrouter">OpenRouter</option></select>
+      </div>
+      <div><label>API Key</label><input id="s_api_key" type="password" /></div>
+      <div><label>Image Domain Filter</label><input id="s_image_domain" /></div>
+      <div><label>Max Images / Listing</label><input id="s_max_images" type="number" min="0" /></div>
+      <div><label>Image Scale</label><input id="s_image_scale" type="number" step="0.1" min="0.1" max="1" /></div>
+      <div><label>AI Concurrency</label><input id="s_ai_concurrency" type="number" min="1" max="10" /></div>
+      <div><label>AI Timeout (seconds)</label><input id="s_ai_timeout_seconds" type="number" min="10" step="10" /></div>
+      <div><label>Daily Scan Time</label><input id="s_scan_time" type="time" value="05:00" /></div>
+      <div class="full-width"><label>AI Prompt</label><textarea id="s_ai_prompt"></textarea></div>
+    </div>
+    <button style="margin-top:8px;" onclick="saveSettings()">Save Settings</button>
+  </details>
+</div>
+
+<!-- Progress log -->
+<div class="panel" id="progressPanel" style="display:none;">
+  <h2>What's Happening</h2>
+  <div id="progress-log"></div>
 </div>
 
 <!-- Listings -->
@@ -163,6 +194,6 @@
   </div>
 </div>
 
-<script src="app.js"></script>
+<script src="admin.js"></script>
 </body>
 </html>

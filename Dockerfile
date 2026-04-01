@@ -13,10 +13,10 @@ RUN npm install --omit=dev
 # Copy source
 COPY src/ ./src/
 
-EXPOSE 3000
+EXPOSE 3253
 
 ENV NODE_ENV=production \
-    PORT=3000 \
+    PORT=3253 \
     DATA_DIR=/data
 
 CMD ["node", "src/server.js"]
