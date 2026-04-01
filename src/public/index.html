@@ -115,6 +115,15 @@
   .info-modal-body .info-row b { color: var(--muted); font-weight: 600; display: inline-block; min-width: 70px; }
   .info-modal-body .info-prompt { white-space: pre-wrap; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; font-size: 0.82rem; max-height: 200px; overflow-y: auto; margin-top: 4px; font-family: monospace; line-height: 1.5; }
 
+  .btn-hide { position: absolute; top: 8px; right: 8px; background: var(--bg); border: 1px solid var(--border); color: var(--muted); font-size: 0.75rem; padding: 4px 10px; border-radius: 6px; cursor: pointer; z-index: 3; }
+  .btn-hide:hover { background: var(--red-soft); color: var(--red); border-color: var(--red); }
+  .hidden-panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); margin: 16px 20px 30px; padding: 0; box-shadow: var(--shadow); }
+  .hidden-panel summary { cursor: pointer; font-weight: 500; font-size: 0.85rem; color: var(--muted); padding: 14px 18px; }
+  .hidden-panel summary:hover { color: var(--text); }
+  .hidden-list { padding: 0 18px 14px; display: flex; flex-wrap: wrap; gap: 6px; }
+  .hidden-chip { background: var(--bg); border: 1px solid var(--border); border-radius: 20px; padding: 4px 12px; font-size: 0.82rem; display: flex; align-items: center; gap: 6px; color: var(--text); cursor: pointer; transition: all 0.1s; }
+  .hidden-chip:hover { background: var(--green-soft); border-color: var(--green); color: var(--green); }
+
   /* Modal */
   .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6); backdrop-filter: blur(4px); z-index: 1000; justify-content: center; align-items: center; padding: 20px; }
   .modal-overlay.open { display: flex; }
@@ -129,9 +138,6 @@
 
 <header>
   <h1>Estate Sale Finder</h1>
-  <div class="header-actions" style="margin-left:auto;">
-    <a href="/admin/" class="btn-outline" style="text-decoration:none;display:inline-flex;align-items:center;">Admin</a>
-  </div>
 </header>
 
 <!-- Filter bar -->
@@ -154,6 +160,14 @@
     <span></span>
   </div>
   <div id="listingsArea"></div>
+</div>
+
+<!-- Hidden listings -->
+<div class="hidden-panel" id="hiddenPanel" style="display:none">
+  <details>
+    <summary id="hiddenSummary">Hidden Listings (0)</summary>
+    <div class="hidden-list" id="hiddenList"></div>
+  </details>
 </div>
 
 <!-- Image modal -->

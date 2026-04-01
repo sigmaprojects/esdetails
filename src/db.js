@@ -67,6 +67,8 @@ if (!listCols.includes('scraped_at')) {
   if (!imgCols.includes('analysis_api'))   db.exec("ALTER TABLE images ADD COLUMN analysis_api TEXT");
   if (!imgCols.includes('analysis_model')) db.exec("ALTER TABLE images ADD COLUMN analysis_model TEXT");
   if (!imgCols.includes('analysis_prompt')) db.exec("ALTER TABLE images ADD COLUMN analysis_prompt TEXT");
+  if (!imgCols.includes('analysis_url')) db.exec("ALTER TABLE images ADD COLUMN analysis_url TEXT");
+  if (!imgCols.includes('analysis_config_name')) db.exec("ALTER TABLE images ADD COLUMN analysis_config_name TEXT");
 }
 
 // Migration: add foreign key constraint to images table if missing
@@ -216,8 +218,8 @@ const stmts = {
     INSERT OR IGNORE INTO images (listing_url, remote_url, local_filename)
     VALUES (@listing_url, @remote_url, @local_filename)
   `),
-  updateAnalysis: db.prepare('UPDATE images SET analysis = ?, analyzed_at = datetime(\'now\'), analysis_api = ?, analysis_model = ?, analysis_prompt = ? WHERE id = ?'),
-  clearAnalysisForListing: db.prepare('UPDATE images SET analysis = NULL, analyzed_at = NULL, analysis_api = NULL, analysis_model = NULL, analysis_prompt = NULL WHERE listing_url = ?'),
+  updateAnalysis: db.prepare('UPDATE images SET analysis = ?, analyzed_at = datetime(\'now\'), analysis_api = ?, analysis_model = ?, analysis_prompt = ?, analysis_url = ?, analysis_config_name = ? WHERE id = ?'),
+  clearAnalysisForListing: db.prepare('UPDATE images SET analysis = NULL, analyzed_at = NULL, analysis_api = NULL, analysis_model = NULL, analysis_prompt = NULL, analysis_url = NULL, analysis_config_name = NULL WHERE listing_url = ?'),
   getUnanalyzedImages: db.prepare('SELECT * FROM images WHERE listing_url = ? AND analyzed_at IS NULL'),
   listingsWithUnanalyzed: db.prepare('SELECT DISTINCT listing_url FROM images WHERE analyzed_at IS NULL'),
 
@@ -257,7 +259,7 @@ export function getAllListings() { return stmts.getListingsAll.all(); }
 export function getImagesByListing(url) { return stmts.getImagesByListing.all(url); }
 export function imageExists(listingUrl, remoteUrl) { return !!stmts.imageExists.get(listingUrl, remoteUrl); }
 export function addImage(data) { return stmts.addImage.run(data); }
-export function updateAnalysis(id, analysis, meta = {}) { return stmts.updateAnalysis.run(analysis, meta.api || null, meta.model || null, meta.prompt || null, id); }
+export function updateAnalysis(id, analysis, meta = {}) { return stmts.updateAnalysis.run(analysis, meta.api || null, meta.model || null, meta.prompt || null, meta.url || null, meta.config_name || null, id); }
 export function clearAnalysisForListing(url) { return stmts.clearAnalysisForListing.run(url); }
 export function getUnanalyzedImages(url) { return stmts.getUnanalyzedImages.all(url); }
 export function listingsWithUnanalyzed() { return stmts.listingsWithUnanalyzed.all().map(r => r.listing_url); }

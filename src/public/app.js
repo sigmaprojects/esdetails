@@ -4,6 +4,7 @@ let sortCol = null;   // 'title' | 'dates' | 'address' | null
 let sortDir = 1;      // 1 = asc, -1 = desc
 let zipDistances = {};  // { zip: miles } cached from backend
 let zipDistancesFor = ''; // the ref zip they were fetched for
+let hiddenUrls = JSON.parse(localStorage.getItem('hiddenListings') || '{}'); // { url: title }
 
 const filterFrom = document.getElementById('filterFrom');
 const filterTo   = document.getElementById('filterTo');
@@ -53,9 +54,10 @@ function renderListings() {
   const hasFilter = text.length >= 3;
   let filtered = hasFilter
     ? listings.filter(l =>
+        !hiddenUrls[l.url] &&
         (l.title + l.address + l.dates + l.images.map(i => i.analysis || '').join(' ')).toLowerCase().includes(text)
       )
-    : [...listings];
+    : listings.filter(l => !hiddenUrls[l.url]);
 
   // Sort
   if (sortCol) {
@@ -92,6 +94,8 @@ function renderListings() {
 
   document.getElementById('listingCount').textContent = `${filtered.length} listing${filtered.length !== 1 ? 's' : ''}`;
 
+  renderHiddenPanel();
+
   // Remember which rows are currently open
   const openUrls = new Set();
   listingsArea.querySelectorAll('.listing-body.open').forEach(el => {
@@ -115,7 +119,8 @@ function renderListings() {
           </div>
           <a href="${esc(l.url)}" target="_blank" onclick="event.stopPropagation()" style="color:var(--accent);font-size:0.8rem;">↗</a>
         </div>
-        <div class="listing-body${isOpen ? ' open' : ''}" id="body-${esc(l.id)}">
+        <div class="listing-body${isOpen ? ' open' : ''}" id="body-${esc(l.id)}" style="position:relative">
+          <button class="btn-hide" onclick="event.stopPropagation();hideListing('${esc(l.url)}','${esc(l.title || 'Untitled')}')">Hide</button>
           <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:8px;">
             ${l.address
               ? `<div class="listing-address" style="margin-bottom:0"><a href="https://www.google.com/maps/search/${encodeURIComponent(l.address)}" target="_blank">📍 ${highlightText(l.address, text)}</a></div>`
@@ -132,7 +137,7 @@ function renderListings() {
               const hidden = hasFilter && !isMatch;
               return `
               <div class="image-card${isMatch ? ' match' : ''}${hidden ? ' filtered-out' : ''}">
-                ${img.analyzed_at ? `<span class="image-info" onclick="event.stopPropagation();openInfoModal(this)" data-analyzed="${esc(img.analyzed_at)}" data-api="${esc(img.analysis_api || '—')}" data-model="${esc(img.analysis_model || '—')}" data-prompt="${esc(img.analysis_prompt || '—')}">i</span>` : ''}
+                ${img.analyzed_at ? `<span class="image-info" onclick="event.stopPropagation();openInfoModal(this)" data-analyzed="${esc(img.analyzed_at)}" data-api="${esc(img.analysis_api || '—')}" data-model="${esc(img.analysis_model || '—')}" data-prompt="${esc(img.analysis_prompt || '—')}" data-url="${esc(img.analysis_url || '')}" data-config="${esc(img.analysis_config_name || '')}">i</span>` : ''}
                 <img src="${esc(img.local_url)}" loading="lazy" data-analysis="${esc(analysisText)}" onclick="openModal(this)" />
                 ${img.analyzed_at
                   ? `<div class="analysis">${highlightText(analysisText, text)}</div>`
@@ -228,8 +233,17 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeModal
 
 function openInfoModal(el) {
   const c = document.getElementById('infoModalContent');
-  c.innerHTML = `<div class="info-row"><b>Analyzed:</b> ${esc(el.dataset.analyzed)}</div>
-    <div class="info-row"><b>API:</b> ${esc(el.dataset.api)}</div>
+  const apiType = el.dataset.api || '—';
+  const apiUrl = el.dataset.url || '';
+  const configName = el.dataset.config || '';
+  let apiTypeLabel = apiType;
+  if (apiType === 'native') apiTypeLabel = 'Ollama Native';
+  else if (apiType === 'openai') apiTypeLabel = 'OpenAI Compatible';
+  else if (apiType === 'openrouter') apiTypeLabel = 'OpenRouter';
+  c.innerHTML = `${configName ? `<div class="info-row"><b>Config:</b> ${esc(configName)}</div>` : ''}
+    <div class="info-row"><b>Analyzed:</b> ${esc(el.dataset.analyzed)}</div>
+    <div class="info-row"><b>API Type:</b> ${esc(apiTypeLabel)}</div>
+    ${apiUrl ? `<div class="info-row"><b>API URL:</b> ${esc(apiUrl)}</div>` : ''}
     <div class="info-row"><b>Model:</b> ${esc(el.dataset.model)}</div>
     <div class="info-row"><b>Prompt:</b><div class="info-prompt">${esc(el.dataset.prompt)}</div></div>`;
   document.getElementById('infoModal').classList.add('open');
@@ -237,6 +251,33 @@ function openInfoModal(el) {
 
 function closeInfoModal() {
   document.getElementById('infoModal').classList.remove('open');
+}
+
+/* ─── Hidden listings ───────────────────────────────────────────────────── */
+function hideListing(url, title) {
+  hiddenUrls[url] = title || 'Untitled';
+  localStorage.setItem('hiddenListings', JSON.stringify(hiddenUrls));
+  renderListings();
+}
+
+function unhideListing(url) {
+  delete hiddenUrls[url];
+  localStorage.setItem('hiddenListings', JSON.stringify(hiddenUrls));
+  renderListings();
+}
+
+function renderHiddenPanel() {
+  const entries = Object.entries(hiddenUrls);
+  const panel = document.getElementById('hiddenPanel');
+  if (entries.length === 0) {
+    panel.style.display = 'none';
+    return;
+  }
+  panel.style.display = '';
+  document.getElementById('hiddenSummary').textContent = `Hidden Listings (${entries.length})`;
+  document.getElementById('hiddenList').innerHTML = entries
+    .map(([url, title]) => `<span class="hidden-chip" onclick="unhideListing('${esc(url)}')" title="Click to unhide">${esc(title)} ✕</span>`)
+    .join('');
 }
 
 /* ── SSE ───────────────────────────────────────────────────────────────── */

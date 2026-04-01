@@ -263,7 +263,7 @@ function renderListings() {
               const analysisText = img.analysis || '';
               return `
               <div class="image-card">
-                ${img.analyzed_at ? `<span class="image-info" onclick="event.stopPropagation();openInfoModal(this)" data-analyzed="${esc(img.analyzed_at)}" data-api="${esc(img.analysis_api || '—')}" data-model="${esc(img.analysis_model || '—')}" data-prompt="${esc(img.analysis_prompt || '—')}">i</span>` : ''}
+                ${img.analyzed_at ? `<span class="image-info" onclick="event.stopPropagation();openInfoModal(this)" data-analyzed="${esc(img.analyzed_at)}" data-api="${esc(img.analysis_api || '—')}" data-model="${esc(img.analysis_model || '—')}" data-prompt="${esc(img.analysis_prompt || '—')}" data-url="${esc(img.analysis_url || '')}" data-config="${esc(img.analysis_config_name || '')}">i</span>` : ''}
                 <img src="${esc(img.local_url)}" loading="lazy" data-analysis="${esc(analysisText)}" onclick="openModal(this)" />
                 ${img.analyzed_at
                   ? `<div class="analysis">${esc(analysisText)}</div>`
@@ -391,8 +391,17 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeModal
 
 function openInfoModal(el) {
   const c = document.getElementById('infoModalContent');
-  c.innerHTML = `<div class="info-row"><b>Analyzed:</b> ${esc(el.dataset.analyzed)}</div>
-    <div class="info-row"><b>API:</b> ${esc(el.dataset.api)}</div>
+  const apiType = el.dataset.api || '—';
+  const apiUrl = el.dataset.url || '';
+  const configName = el.dataset.config || '';
+  let apiTypeLabel = apiType;
+  if (apiType === 'native') apiTypeLabel = 'Ollama Native';
+  else if (apiType === 'openai') apiTypeLabel = 'OpenAI Compatible';
+  else if (apiType === 'openrouter') apiTypeLabel = 'OpenRouter';
+  c.innerHTML = `${configName ? `<div class="info-row"><b>Config:</b> ${esc(configName)}</div>` : ''}
+    <div class="info-row"><b>Analyzed:</b> ${esc(el.dataset.analyzed)}</div>
+    <div class="info-row"><b>API Type:</b> ${esc(apiTypeLabel)}</div>
+    ${apiUrl ? `<div class="info-row"><b>API URL:</b> ${esc(apiUrl)}</div>` : ''}
     <div class="info-row"><b>Model:</b> ${esc(el.dataset.model)}</div>
     <div class="info-row"><b>Prompt:</b><div class="info-prompt">${esc(el.dataset.prompt)}</div></div>`;
   document.getElementById('infoModal').classList.add('open');

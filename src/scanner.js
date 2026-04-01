@@ -74,7 +74,7 @@ async function _drainAiQueue() {
                 api_key: cfg.api_key,
                 ai_timeout_seconds: String(cfg.ai_timeout_seconds),
               });
-              const analysisMeta = { api: cfg.api_type, model: cfg.api_model, prompt: cfg.ai_prompt || '' };
+              const analysisMeta = { api: cfg.api_type, model: cfg.api_model, prompt: cfg.ai_prompt || '', url: cfg.api_url || '', config_name: cfg.name || '' };
               db.updateAnalysis(img.id, analysis, analysisMeta);
               const itemCount = analysis.split('\n').filter(l => l.trim()).length;
               broadcast({
@@ -102,7 +102,7 @@ async function _drainAiQueue() {
 
         if (!analyzed) {
           // All configs exhausted
-          const analysisMeta = { api: aiConfigs[0].api_type, model: aiConfigs[0].api_model, prompt: aiConfigs[0].ai_prompt || '' };
+          const analysisMeta = { api: aiConfigs[0].api_type, model: aiConfigs[0].api_model, prompt: aiConfigs[0].ai_prompt || '', url: aiConfigs[0].api_url || '', config_name: aiConfigs[0].name || '' };
           db.updateAnalysis(img.id, `ERROR: All AI configs failed`, analysisMeta);
           broadcast({ type: 'scan_progress', message: `  ⚠ All AI configs failed for image ${idx + 1}/${work.length}` });
         }
