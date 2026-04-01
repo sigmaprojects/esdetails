@@ -91,7 +91,17 @@ app.delete('/api/listings', (req, res) => {
 app.get('/api/listings', (req, res) => {
   const { from, to } = req.query;
   const listings = db.getListings(from || null, to || null);
-  const result = listings.map(l => ({
+
+  // Filter out listings matching ignore words
+  const ignoreWords = (db.getSetting('ignore_words') || '').split(',').map(w => w.trim().toLowerCase()).filter(Boolean);
+
+  const result = listings
+    .filter(l => {
+      if (ignoreWords.length === 0) return true;
+      const titleLower = (l.title || '').toLowerCase();
+      return !ignoreWords.some(w => titleLower.includes(w));
+    })
+    .map(l => ({
     ...l,
     images: db.getImagesByListing(l.url).map(img => ({
       ...img,

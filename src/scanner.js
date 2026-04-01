@@ -253,6 +253,18 @@ export async function runFullScan(broadcast) {
           // Save listing to DB as soon as it's scraped (don't wait for image download/AI)
           if (d.type === 'listing_scraped' && d.listing && !d.listing.error) {
             const listing = d.listing;
+
+            // Check ignore words — skip listing entirely if title matches
+            const ignoreWords = (settings.ignore_words || '').split(',').map(w => w.trim().toLowerCase()).filter(Boolean);
+            if (ignoreWords.length > 0) {
+              const titleLower = (listing.title || '').toLowerCase();
+              const matched = ignoreWords.find(w => titleLower.includes(w));
+              if (matched) {
+                broadcast({ type: 'scan_progress', message: `  ⏭ Skipped "${listing.title}" (ignore word: "${matched}")` });
+                return;
+              }
+            }
+
             const { start_date, end_date } = db.parseDateRange(listing.dates);
             db.upsertListing({
               url: listing.url,

@@ -74,7 +74,7 @@ async function removeZipcode(id) {
 document.getElementById('zipInput').addEventListener('keydown', e => { if (e.key === 'Enter') addZipcode(); });
 
 /* ── Settings (site-only) ──────────────────────────────────────────────── */
-const SITE_SETTING_KEYS = ['image_domain', 'max_images', 'scan_time'];
+const SITE_SETTING_KEYS = ['image_domain', 'max_images', 'scan_time', 'ignore_words'];
 
 async function loadSettings() {
   settings = await api('/api/settings');

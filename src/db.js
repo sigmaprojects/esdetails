@@ -166,6 +166,7 @@ const DEFAULTS = {
   scan_time: '06:20',
   image_domain: 'picturescdn.estatesales.net',
   max_images: '100000',
+  ignore_words: 'auction, online, warehouse, offsite, off-site, liquidation',
   last_scan_at: '',
 };
 

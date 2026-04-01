@@ -163,29 +163,54 @@ async function configureSearchForm(page, distance, progressCallback) {
 
     // Configure sale type checkboxes:
     // - Keep checked: Estate Sales, Moving Sales
-    // - Uncheck all "Additional Liquidations": Business Closings, Moved Offsite To Store,
-    //   Outside Sales, Single Item Type Collections, Buyouts Or Cleanouts, Demolition Sales
+    // - Uncheck all unwanted sale types by their exact label text
     const uncheckedLabels = await page.evaluate(() => {
       const unchecked = [];
-      const uncheckPatterns = [
-        'business closing', 'moved offsite', 'outside sale',
-        'single item', 'buyout', 'cleanout', 'demolition',
-        'auction', 'online', 'dealer', 'other',
-        'additional', 'liquidation', 'tag sale', 'garage',
+      // Exact labels to uncheck (lowercased for comparison)
+      const uncheckExact = [
+        'moved offsite to warehouse',
+        'by appointment',
+        'online estate sales',
+        'auctions',
+        'auction house',
+        'online only auctions',
+        'business closings',
+        'moved offsite to store',
+        'outside sales',
+        'single item type collections',
+        'buyouts or cleanouts',
+        'demolition sales',
       ];
+
+      // Approach 1: standard input[type="checkbox"] elements
       const checkboxes = document.querySelectorAll('input[type="checkbox"]');
       for (const cb of checkboxes) {
         const label = cb.closest('label') || document.querySelector(`label[for="${cb.id}"]`);
         const text = (label?.textContent || cb.getAttribute('aria-label') || cb.name || '').trim().toLowerCase();
+        if (uncheckExact.some(p => text.includes(p)) && cb.checked) {
+          cb.click();
+          unchecked.push(text);
+        }
+      }
 
-        if (text.includes('estate sale') || text.includes('estate sales')) {
-          if (!cb.checked) cb.click();
-        } else if (text.includes('moving sale') || text.includes('moving sales')) {
-          if (!cb.checked) cb.click();
-        } else if (uncheckPatterns.some((p) => text.includes(p))) {
-          if (cb.checked) {
+      // Approach 2: clickable labels/spans that act as checkboxes (React/custom components)
+      // Look for any element whose text matches an uncheck label and has a checked state
+      if (unchecked.length === 0) {
+        const allLabels = document.querySelectorAll('label, span, div, li, a');
+        for (const el of allLabels) {
+          const text = el.textContent.trim().toLowerCase();
+          if (!uncheckExact.some(p => text === p)) continue;
+          // Check for a checkbox input inside or nearby
+          const cb = el.querySelector('input[type="checkbox"]') ||
+                     el.previousElementSibling?.querySelector?.('input[type="checkbox"]') ||
+                     el.parentElement?.querySelector('input[type="checkbox"]');
+          if (cb && cb.checked) {
             cb.click();
             unchecked.push(text);
+          } else if (!cb) {
+            // Might be a custom checkbox — click the label itself
+            el.click();
+            unchecked.push(text + ' (label click)');
           }
         }
       }
