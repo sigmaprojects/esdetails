@@ -97,19 +97,75 @@ if (!listCols.includes('scraped_at')) {
   }
 }
 
+// ── AI Configs table ───────────────────────────────────────────────────────
+db.exec(`
+  CREATE TABLE IF NOT EXISTS ai_configs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL DEFAULT '',
+    api_url TEXT NOT NULL DEFAULT '',
+    api_model TEXT NOT NULL DEFAULT '',
+    api_type TEXT NOT NULL DEFAULT 'native',
+    api_key TEXT NOT NULL DEFAULT '',
+    image_scale REAL NOT NULL DEFAULT 0.5,
+    ai_concurrency INTEGER NOT NULL DEFAULT 1,
+    ai_timeout_seconds INTEGER NOT NULL DEFAULT 500,
+    retry_count INTEGER NOT NULL DEFAULT 2,
+    weight INTEGER NOT NULL DEFAULT 10,
+    ai_prompt TEXT NOT NULL DEFAULT '',
+    created_at TEXT DEFAULT (datetime('now'))
+  );
+`);
+
+// Migration: add ai_prompt column if missing (existing DBs before this change)
+{
+  const cols = db.prepare("PRAGMA table_info(ai_configs)").all().map(c => c.name);
+  if (!cols.includes('ai_prompt')) {
+    db.exec("ALTER TABLE ai_configs ADD COLUMN ai_prompt TEXT NOT NULL DEFAULT ''");
+    // Copy prompt from site settings into all existing configs
+    const legacyPrompt = db.prepare("SELECT value FROM settings WHERE key = 'ai_prompt'").get();
+    if (legacyPrompt?.value) {
+      db.prepare("UPDATE ai_configs SET ai_prompt = ?").run(legacyPrompt.value);
+    }
+    console.log('[DB] Migrated ai_prompt into ai_configs table.');
+  }
+}
+
+// Migration: seed first ai_config from legacy settings if table is empty
+{
+  const count = db.prepare('SELECT COUNT(*) as cnt FROM ai_configs').get().cnt;
+  if (count === 0) {
+    // Try to migrate from existing flat settings
+    const legacyUrl   = db.prepare("SELECT value FROM settings WHERE key = 'ollama_url'").get();
+    const legacyModel = db.prepare("SELECT value FROM settings WHERE key = 'ollama_model'").get();
+    const legacyType  = db.prepare("SELECT value FROM settings WHERE key = 'api_type'").get();
+    const legacyKey   = db.prepare("SELECT value FROM settings WHERE key = 'api_key'").get();
+    const legacyScale = db.prepare("SELECT value FROM settings WHERE key = 'image_scale'").get();
+    const legacyConc  = db.prepare("SELECT value FROM settings WHERE key = 'ai_concurrency'").get();
+    const legacyTout  = db.prepare("SELECT value FROM settings WHERE key = 'ai_timeout_seconds'").get();
+
+    const legacyPrompt = db.prepare("SELECT value FROM settings WHERE key = 'ai_prompt'").get();
+    db.prepare(`INSERT INTO ai_configs (name, api_url, api_model, api_type, api_key, image_scale, ai_concurrency, ai_timeout_seconds, retry_count, weight, ai_prompt)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 2, 10, ?)`)
+      .run(
+        'Default',
+        legacyUrl?.value   || 'http://192.168.1.34:11434',
+        legacyModel?.value || 'llava-llama3:8b',
+        legacyType?.value  || 'native',
+        legacyKey?.value   || '',
+        parseFloat(legacyScale?.value) || 0.5,
+        parseInt(legacyConc?.value, 10)  || 1,
+        parseInt(legacyTout?.value, 10)  || 500,
+        legacyPrompt?.value || '',
+      );
+    console.log('[DB] Migrated legacy AI settings into ai_configs table.');
+  }
+}
+
 // ── Default settings ───────────────────────────────────────────────────────
 const DEFAULTS = {
   scan_time: '06:20',
   image_domain: 'picturescdn.estatesales.net',
-  ollama_url: 'http://192.168.1.34:11434',
-  ollama_model: 'llava-llama3:8b',
-  api_type: 'native',
-  api_key: '',
   max_images: '100000',
-  image_scale: '0.5',
-  ai_concurrency: '1',
-  ai_timeout_seconds: '500',
-  ai_prompt: 'List every item in this image. For each item, provide only the name and the material/color.\nRules:\nDo NOT mention brands, models, or \'generic\' unless you are extremely confident in the brand or model.\nDo NOT mention characters unless you are extremely confident what character is portrayed.\nDo NOT describe condition.\nFormat: [Brand (if any)] [Model (if any)] [Character (if any)] [Item Name]: [Material/Color]\nDo NOT include the brackets [] if there is no brand or model or character or unknown material/color, do NOT include empty brackets in the format.\nBe extremely brief. Use one line per item.',
   last_scan_at: '',
 };
 
@@ -170,6 +226,16 @@ const stmts = {
   getSetting: db.prepare('SELECT value FROM settings WHERE key = ?'),
   setSetting: db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)'),
   getAllSettings: db.prepare('SELECT key, value FROM settings'),
+
+  // AI configs
+  getAllAiConfigs: db.prepare('SELECT * FROM ai_configs ORDER BY weight DESC, id ASC'),
+  getActiveAiConfigs: db.prepare('SELECT * FROM ai_configs WHERE weight > 0 ORDER BY weight DESC, id ASC'),
+  getAiConfig: db.prepare('SELECT * FROM ai_configs WHERE id = ?'),
+  addAiConfig: db.prepare(`INSERT INTO ai_configs (name, api_url, api_model, api_type, api_key, image_scale, ai_concurrency, ai_timeout_seconds, retry_count, weight, ai_prompt)
+    VALUES (@name, @api_url, @api_model, @api_type, @api_key, @image_scale, @ai_concurrency, @ai_timeout_seconds, @retry_count, @weight, @ai_prompt)`),
+  updateAiConfig: db.prepare(`UPDATE ai_configs SET name=@name, api_url=@api_url, api_model=@api_model, api_type=@api_type, api_key=@api_key,
+    image_scale=@image_scale, ai_concurrency=@ai_concurrency, ai_timeout_seconds=@ai_timeout_seconds, retry_count=@retry_count, weight=@weight, ai_prompt=@ai_prompt WHERE id=@id`),
+  deleteAiConfig: db.prepare('DELETE FROM ai_configs WHERE id = ?'),
 };
 
 // ── Exports ────────────────────────────────────────────────────────────────
@@ -209,6 +275,14 @@ export function getAllSettings() {
   for (const { key, value } of rows) s[key] = value;
   return s;
 }
+
+// ── AI Configs CRUD ────────────────────────────────────────────────────────
+export function getAllAiConfigs() { return stmts.getAllAiConfigs.all(); }
+export function getActiveAiConfigs() { return stmts.getActiveAiConfigs.all(); }
+export function getAiConfig(id) { return stmts.getAiConfig.get(id); }
+export function addAiConfig(data) { return stmts.addAiConfig.run(data); }
+export function updateAiConfig(data) { return stmts.updateAiConfig.run(data); }
+export function deleteAiConfig(id) { return stmts.deleteAiConfig.run(id); }
 
 // ── Date parser ────────────────────────────────────────────────────────────
 export function parseDateRange(datesText) {

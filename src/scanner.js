@@ -21,10 +21,17 @@ async function _drainAiQueue() {
   _aiRunning = true;
 
   while (_aiQueue.length > 0 && !_aiStopped) {
-    // Re-read settings each batch so concurrency changes apply immediately
-    const settings = db.getAllSettings();
-    const concurrency = Math.max(1, parseInt(settings.ai_concurrency, 10) || 1);
+    const aiConfigs = db.getActiveAiConfigs(); // sorted by weight DESC
     const broadcast = _aiBroadcast || (() => {});
+
+    if (aiConfigs.length === 0) {
+      broadcast({ type: 'scan_progress', message: '⚠ No active AI configs (weight > 0). Skipping analysis.' });
+      _aiQueue = [];
+      break;
+    }
+
+    // Use concurrency from the highest-weight config
+    const concurrency = Math.max(1, aiConfigs[0].ai_concurrency || 1);
 
     // Gather all pending items
     const batch = _aiQueue.splice(0, _aiQueue.length);
@@ -40,37 +47,64 @@ async function _drainAiQueue() {
 
     if (work.length === 0) continue;
 
-    const ollamaUrl = settings.ollama_url;
-    const ollamaModel = settings.ollama_model;
-    if (!ollamaUrl || !ollamaModel) continue;
-
-    const apiType = settings.api_type || 'native';
-    const aiPrompt = settings.ai_prompt || '';
-    const analysisMeta = { api: apiType, model: ollamaModel, prompt: aiPrompt };
-    broadcast({ type: 'scan_progress', message: `🤖 AI queue: ${work.length} image${work.length !== 1 ? 's' : ''} to analyze (concurrency: ${concurrency})` });
+    broadcast({ type: 'scan_progress', message: `🤖 AI queue: ${work.length} image${work.length !== 1 ? 's' : ''} to analyze (concurrency: ${concurrency}, ${aiConfigs.length} config${aiConfigs.length !== 1 ? 's' : ''})` });
 
     let cursor = 0;
     async function worker() {
       while (cursor < work.length && !_aiStopped) {
         const idx = cursor++;
         const { listingUrl, img } = work[idx];
-        try {
-          const localPath = path.join(db.IMAGES_DIR, img.local_filename);
-          broadcast({ type: 'scan_progress', message: `  🔍 AI analyzing image ${idx + 1}/${work.length}…` });
-          const analysis = await analyzeLocalImage(localPath, settings);
-          db.updateAnalysis(img.id, analysis, analysisMeta);
-          const itemCount = analysis.split('\n').filter(l => l.trim()).length;
-          broadcast({
-            type: 'image_analyzed',
-            listingUrl,
-            imageId: img.id,
-            analysis,
-            message: `  ✅ AI returned ${itemCount} item${itemCount !== 1 ? 's' : ''} (image ${idx + 1}/${work.length})`,
-          });
-        } catch (err) {
-          console.error(`[Scanner] Analysis failed for image ${img.id}: ${err.message}`);
-          db.updateAnalysis(img.id, `ERROR: ${err.message}`, analysisMeta);
-          broadcast({ type: 'scan_progress', message: `  ⚠ AI failed for image ${idx + 1}/${work.length}: ${err.message}` });
+        const localPath = path.join(db.IMAGES_DIR, img.local_filename);
+
+        let analyzed = false;
+        for (const cfg of aiConfigs) {
+          if (_aiStopped) break;
+          const maxRetries = Math.max(1, cfg.retry_count || 2);
+          let lastErr = null;
+
+          for (let attempt = 1; attempt <= maxRetries; attempt++) {
+            try {
+              broadcast({ type: 'scan_progress', message: `  🔍 AI analyzing image ${idx + 1}/${work.length} [${cfg.name || 'config#' + cfg.id}]${attempt > 1 ? ` (retry ${attempt}/${maxRetries})` : ''}…` });
+              const analysis = await analyzeLocalImage(localPath, {
+                image_scale: String(cfg.image_scale),
+                ai_prompt: cfg.ai_prompt || '',
+                ollama_url: cfg.api_url,
+                ollama_model: cfg.api_model,
+                api_type: cfg.api_type,
+                api_key: cfg.api_key,
+                ai_timeout_seconds: String(cfg.ai_timeout_seconds),
+              });
+              const analysisMeta = { api: cfg.api_type, model: cfg.api_model, prompt: cfg.ai_prompt || '' };
+              db.updateAnalysis(img.id, analysis, analysisMeta);
+              const itemCount = analysis.split('\n').filter(l => l.trim()).length;
+              broadcast({
+                type: 'image_analyzed',
+                listingUrl,
+                imageId: img.id,
+                analysis,
+                message: `  ✅ AI returned ${itemCount} item${itemCount !== 1 ? 's' : ''} (image ${idx + 1}/${work.length}) [${cfg.name || cfg.api_model}]`,
+              });
+              analyzed = true;
+              break; // success, exit retry loop
+            } catch (err) {
+              lastErr = err;
+              console.error(`[Scanner] Analysis attempt ${attempt}/${maxRetries} failed for image ${img.id} [${cfg.name}]: ${err.message}`);
+              if (attempt < maxRetries) {
+                broadcast({ type: 'scan_progress', message: `  ⚠ Attempt ${attempt}/${maxRetries} failed [${cfg.name || cfg.api_model}]: ${err.message}` });
+              }
+            }
+          }
+
+          if (analyzed) break; // success with this config, don't try next
+          // All retries exhausted for this config — try next one
+          broadcast({ type: 'scan_progress', message: `  ⚠ All ${maxRetries} attempts failed for [${cfg.name || cfg.api_model}], trying next config…` });
+        }
+
+        if (!analyzed) {
+          // All configs exhausted
+          const analysisMeta = { api: aiConfigs[0].api_type, model: aiConfigs[0].api_model, prompt: aiConfigs[0].ai_prompt || '' };
+          db.updateAnalysis(img.id, `ERROR: All AI configs failed`, analysisMeta);
+          broadcast({ type: 'scan_progress', message: `  ⚠ All AI configs failed for image ${idx + 1}/${work.length}` });
         }
       }
     }

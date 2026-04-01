@@ -165,17 +165,6 @@ app.get('/api/settings', (_req, res) => {
 });
 
 app.post('/api/settings', (req, res) => {
-  // Validate ollama_url if provided
-  if (req.body.ollama_url) {
-    try {
-      const parsed = new URL(req.body.ollama_url);
-      if (!['http:', 'https:'].includes(parsed.protocol)) {
-        return res.status(400).json({ error: 'Invalid URL scheme for ollama_url' });
-      }
-    } catch {
-      return res.status(400).json({ error: 'Invalid ollama_url' });
-    }
-  }
   for (const [key, value] of Object.entries(req.body)) {
     db.setSetting(key, value);
   }
@@ -183,6 +172,67 @@ app.post('/api/settings', (req, res) => {
   if (req.body.scan_time) {
     startScheduler(req.body.scan_time, broadcast);
   }
+  res.json({ ok: true });
+});
+
+// ── AI Configs ─────────────────────────────────────────────────────────────
+app.get('/api/ai-configs', (_req, res) => {
+  res.json(db.getAllAiConfigs());
+});
+
+app.post('/api/ai-configs', (req, res) => {
+  const { name, api_url, api_model, api_type, api_key, image_scale, ai_concurrency, ai_timeout_seconds, retry_count, weight, ai_prompt } = req.body;
+  if (api_url) {
+    try {
+      const parsed = new URL(api_url);
+      if (!['http:', 'https:'].includes(parsed.protocol)) {
+        return res.status(400).json({ error: 'Invalid URL scheme' });
+      }
+    } catch {
+      return res.status(400).json({ error: 'Invalid api_url' });
+    }
+  }
+  const result = db.addAiConfig({
+    name: name || '', api_url: api_url || '', api_model: api_model || '',
+    api_type: api_type || 'native', api_key: api_key || '',
+    image_scale: parseFloat(image_scale) || 0.5, ai_concurrency: parseInt(ai_concurrency, 10) || 1,
+    ai_timeout_seconds: parseInt(ai_timeout_seconds, 10) || 500,
+    retry_count: parseInt(retry_count, 10) || 2, weight: parseInt(weight, 10) || 0,
+    ai_prompt: ai_prompt || '',
+  });
+  res.json({ ok: true, id: Number(result.lastInsertRowid) });
+});
+
+app.put('/api/ai-configs/:id', (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const existing = db.getAiConfig(id);
+  if (!existing) return res.status(404).json({ error: 'Config not found' });
+  const { name, api_url, api_model, api_type, api_key, image_scale, ai_concurrency, ai_timeout_seconds, retry_count, weight, ai_prompt } = req.body;
+  if (api_url) {
+    try {
+      const parsed = new URL(api_url);
+      if (!['http:', 'https:'].includes(parsed.protocol)) {
+        return res.status(400).json({ error: 'Invalid URL scheme' });
+      }
+    } catch {
+      return res.status(400).json({ error: 'Invalid api_url' });
+    }
+  }
+  db.updateAiConfig({
+    id, name: name ?? existing.name, api_url: api_url ?? existing.api_url,
+    api_model: api_model ?? existing.api_model, api_type: api_type ?? existing.api_type,
+    api_key: api_key ?? existing.api_key, image_scale: parseFloat(image_scale ?? existing.image_scale) || 0.5,
+    ai_concurrency: parseInt(ai_concurrency ?? existing.ai_concurrency, 10) || 1,
+    ai_timeout_seconds: parseInt(ai_timeout_seconds ?? existing.ai_timeout_seconds, 10) || 500,
+    retry_count: parseInt(retry_count ?? existing.retry_count, 10) || 2,
+    weight: parseInt(weight ?? existing.weight, 10) ?? 0,
+    ai_prompt: ai_prompt ?? existing.ai_prompt ?? '',
+  });
+  res.json({ ok: true });
+});
+
+app.delete('/api/ai-configs/:id', (req, res) => {
+  db.deleteAiConfig(parseInt(req.params.id, 10));
   res.json({ ok: true });
 });
 

@@ -62,6 +62,15 @@
   .settings-grid textarea { height: 60px; resize: vertical; font-family: monospace; }
   .settings-grid .full-width { grid-column: 1 / -1; }
 
+  .ai-config-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+  .ai-config-table th { text-align: left; padding: 6px 8px; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.03em; color: var(--muted); font-weight: 600; border-bottom: 2px solid var(--border); }
+  .ai-config-table td { padding: 8px; border-bottom: 1px solid var(--border); }
+  .ai-config-table tr:last-child td { border-bottom: none; }
+  .ai-config-table .cfg-weight { font-weight: 600; min-width: 40px; text-align: center; }
+  .ai-config-table .cfg-name { font-weight: 500; }
+  .ai-config-table .cfg-disabled td { opacity: 0.45; }
+  .ai-config-table .cfg-actions { white-space: nowrap; }
+
   #progress-log { font-size: 0.82rem; color: var(--muted); max-height: 300px; overflow-y: auto; margin-top: 10px; border-top: 1px solid var(--border); padding-top: 8px; }
   #progress-log p { margin: 3px 0; padding: 2px 6px; border-radius: 4px; }
 
@@ -97,11 +106,13 @@
   .image-card .pending { padding: 8px 10px; font-size: 0.78rem; color: var(--accent); font-style: italic; }
 
   .image-card { position: relative; }
-  .image-info { position: absolute; top: 6px; right: 6px; width: 20px; height: 20px; border-radius: 50%; background: rgba(0,0,0,0.55); color: #fff; font-size: 12px; font-weight: 700; font-style: italic; font-family: Georgia, serif; display: flex; align-items: center; justify-content: center; cursor: default; z-index: 2; line-height: 1; }
+  .image-info { position: absolute; top: 6px; right: 6px; width: 20px; height: 20px; border-radius: 50%; background: rgba(0,0,0,0.55); color: #fff; font-size: 12px; font-weight: 700; font-style: italic; font-family: Georgia, serif; display: flex; align-items: center; justify-content: center; cursor: pointer; z-index: 2; line-height: 1; }
   .image-info:hover { background: rgba(0,0,0,0.8); }
-  .image-info .info-tooltip { display: none; position: absolute; top: 100%; right: 0; margin-top: 4px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; font-size: 0.72rem; font-style: normal; font-weight: 400; font-family: 'Segoe UI', system-ui, sans-serif; color: var(--text); white-space: nowrap; box-shadow: var(--shadow-md); z-index: 10; min-width: 180px; }
-  .image-info .info-tooltip b { color: var(--muted); font-weight: 600; }
-  .image-info:hover .info-tooltip { display: block; }
+  .info-modal-body { background: var(--surface); border-radius: var(--radius); padding: 24px; max-width: 600px; width: 90vw; position: relative; box-shadow: 0 20px 60px rgba(0,0,0,0.3); }
+  .info-modal-body h3 { margin-bottom: 14px; font-size: 1rem; color: var(--text); }
+  .info-modal-body .info-row { margin-bottom: 10px; font-size: 0.85rem; line-height: 1.5; }
+  .info-modal-body .info-row b { color: var(--muted); font-weight: 600; display: inline-block; min-width: 70px; }
+  .info-modal-body .info-prompt { white-space: pre-wrap; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; font-size: 0.82rem; max-height: 200px; overflow-y: auto; margin-top: 4px; font-family: monospace; line-height: 1.5; }
 
   /* Modal */
   .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6); backdrop-filter: blur(4px); z-index: 1000; justify-content: center; align-items: center; padding: 20px; }
@@ -143,26 +154,47 @@
   </div>
 </div>
 
-<!-- Settings -->
+<!-- Site Settings -->
 <div class="panel">
   <details open>
-    <summary>Settings</summary>
+    <summary>Site Settings</summary>
     <div class="settings-grid" style="margin-top:10px;" id="settingsForm">
-      <div><label>Ollama URL</label><input id="s_ollama_url" /></div>
-      <div><label>Model</label><input id="s_ollama_model" /></div>
-      <div><label>API Type</label>
-        <select id="s_api_type"><option value="native">Ollama Native</option><option value="openai">OpenAI Compatible</option><option value="openrouter">OpenRouter</option></select>
-      </div>
-      <div><label>API Key</label><input id="s_api_key" type="password" /></div>
       <div><label>Image Domain Filter</label><input id="s_image_domain" /></div>
       <div><label>Max Images / Listing</label><input id="s_max_images" type="number" min="0" /></div>
-      <div><label>Image Scale</label><input id="s_image_scale" type="number" step="0.1" min="0.1" max="1" /></div>
-      <div><label>AI Concurrency</label><input id="s_ai_concurrency" type="number" min="1" max="10" /></div>
-      <div><label>AI Timeout (seconds)</label><input id="s_ai_timeout_seconds" type="number" min="10" step="10" /></div>
       <div><label>Daily Scan Time</label><input id="s_scan_time" type="time" value="05:00" /></div>
-      <div class="full-width"><label>AI Prompt</label><textarea id="s_ai_prompt"></textarea></div>
     </div>
     <button style="margin-top:8px;" onclick="saveSettings()">Save Settings</button>
+  </details>
+</div>
+
+<!-- AI Configurations -->
+<div class="panel">
+  <details open>
+    <summary>AI Configurations</summary>
+    <div id="aiConfigsList" style="margin-top:10px;"></div>
+    <button style="margin-top:10px;" onclick="showAddConfigForm()">+ Add AI Config</button>
+    <div id="aiConfigForm" style="display:none;margin-top:12px;border-top:1px solid var(--border);padding-top:12px;">
+      <input type="hidden" id="cfg_id" />
+      <div class="settings-grid">
+        <div><label>Name</label><input id="cfg_name" placeholder="e.g. Primary Ollama" /></div>
+        <div><label>API URL</label><input id="cfg_api_url" placeholder="http://localhost:11434" /></div>
+        <div><label>Model</label><input id="cfg_api_model" placeholder="llava" /></div>
+        <div><label>API Type</label>
+          <select id="cfg_api_type"><option value="native">Ollama Native</option><option value="openai">OpenAI Compatible</option><option value="openrouter">OpenRouter</option></select>
+        </div>
+        <div><label>API Key</label><input id="cfg_api_key" type="password" /></div>
+        <div><label>Image Scale</label><input id="cfg_image_scale" type="number" step="0.1" min="0.1" max="1" value="0.5" /></div>
+        <div><label>AI Concurrency</label><input id="cfg_ai_concurrency" type="number" min="1" max="10" value="1" /></div>
+        <div><label>AI Timeout (seconds)</label><input id="cfg_ai_timeout_seconds" type="number" min="10" step="10" value="300" /></div>
+        <div><label>Retry Count</label><input id="cfg_retry_count" type="number" min="1" max="10" value="2" /></div>
+        <div><label>Weight (0 = disabled)</label><input id="cfg_weight" type="number" min="0" value="10" /></div>
+        <div class="full-width"><label>AI Prompt</label><textarea id="cfg_ai_prompt"></textarea></div>
+      </div>
+      <div style="margin-top:8px;display:flex;gap:6px;">
+        <button onclick="saveConfig()">Save Config</button>
+        <button class="btn-outline" onclick="hideConfigForm()">Cancel</button>
+      </div>
+    </div>
   </details>
 </div>
 
@@ -194,6 +226,15 @@
   </div>
 </div>
 
-<script src="admin.js"></script>
+<!-- Info modal -->
+<div class="modal-overlay" id="infoModal" onclick="if(event.target===this)closeInfoModal()">
+  <div class="info-modal-body">
+    <button class="modal-close" onclick="closeInfoModal()">&times;</button>
+    <h3>Analysis Details</h3>
+    <div id="infoModalContent"></div>
+  </div>
+</div>
+
+<script src="/admin.js"></script>
 </body>
 </html>

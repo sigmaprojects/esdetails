@@ -9,6 +9,11 @@ const filterFrom = document.getElementById('filterFrom');
 const filterTo   = document.getElementById('filterTo');
 const filterText = document.getElementById('filterText');
 const listingsArea = document.getElementById('listingsArea');
+let _filterTimer = null;
+filterText.addEventListener('keyup', () => {
+  clearTimeout(_filterTimer);
+  _filterTimer = setTimeout(() => applyTextFilter(), 500);
+});
 
 /* ── Init ──────────────────────────────────────────────────────────────── */
 (async () => {
@@ -44,8 +49,8 @@ function highlightText(str, term) {
 }
 
 function renderListings() {
-  const text = (filterText.value || '').toLowerCase();
-  const hasFilter = text.length > 0;
+  const text = (filterText.value || '').trim().toLowerCase();
+  const hasFilter = text.length >= 3;
   let filtered = hasFilter
     ? listings.filter(l =>
         (l.title + l.address + l.dates + l.images.map(i => i.analysis || '').join(' ')).toLowerCase().includes(text)
@@ -127,7 +132,7 @@ function renderListings() {
               const hidden = hasFilter && !isMatch;
               return `
               <div class="image-card${isMatch ? ' match' : ''}${hidden ? ' filtered-out' : ''}">
-                ${img.analyzed_at ? `<span class="image-info">i<span class="info-tooltip"><b>Analyzed:</b> ${esc(img.analyzed_at)}<br><b>API:</b> ${esc(img.analysis_api || '—')}<br><b>Model:</b> ${esc(img.analysis_model || '—')}<br><b>Prompt:</b> ${esc((img.analysis_prompt || '—').substring(0, 80))}${(img.analysis_prompt || '').length > 80 ? '…' : ''}</span></span>` : ''}
+                ${img.analyzed_at ? `<span class="image-info" onclick="event.stopPropagation();openInfoModal(this)" data-analyzed="${esc(img.analyzed_at)}" data-api="${esc(img.analysis_api || '—')}" data-model="${esc(img.analysis_model || '—')}" data-prompt="${esc(img.analysis_prompt || '—')}">i</span>` : ''}
                 <img src="${esc(img.local_url)}" loading="lazy" data-analysis="${esc(analysisText)}" onclick="openModal(this)" />
                 ${img.analyzed_at
                   ? `<div class="analysis">${highlightText(analysisText, text)}</div>`
@@ -219,7 +224,20 @@ function closeModal() {
   document.getElementById('modalImg').src = '';
 }
 
-document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeModal(); closeInfoModal(); } });
+
+function openInfoModal(el) {
+  const c = document.getElementById('infoModalContent');
+  c.innerHTML = `<div class="info-row"><b>Analyzed:</b> ${esc(el.dataset.analyzed)}</div>
+    <div class="info-row"><b>API:</b> ${esc(el.dataset.api)}</div>
+    <div class="info-row"><b>Model:</b> ${esc(el.dataset.model)}</div>
+    <div class="info-row"><b>Prompt:</b><div class="info-prompt">${esc(el.dataset.prompt)}</div></div>`;
+  document.getElementById('infoModal').classList.add('open');
+}
+
+function closeInfoModal() {
+  document.getElementById('infoModal').classList.remove('open');
+}
 
 /* ── SSE ───────────────────────────────────────────────────────────────── */
 let _listingReloadTimer = null;

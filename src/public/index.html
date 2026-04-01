@@ -107,11 +107,13 @@
   mark.highlight { background: #fce4b8; color: var(--text); border-radius: 2px; padding: 0 3px; }
 
   .image-card { position: relative; }
-  .image-info { position: absolute; top: 6px; right: 6px; width: 20px; height: 20px; border-radius: 50%; background: rgba(0,0,0,0.55); color: #fff; font-size: 12px; font-weight: 700; font-style: italic; font-family: Georgia, serif; display: flex; align-items: center; justify-content: center; cursor: default; z-index: 2; line-height: 1; }
+  .image-info { position: absolute; top: 6px; right: 6px; width: 20px; height: 20px; border-radius: 50%; background: rgba(0,0,0,0.55); color: #fff; font-size: 12px; font-weight: 700; font-style: italic; font-family: Georgia, serif; display: flex; align-items: center; justify-content: center; cursor: pointer; z-index: 2; line-height: 1; }
   .image-info:hover { background: rgba(0,0,0,0.8); }
-  .image-info .info-tooltip { display: none; position: absolute; top: 100%; right: 0; margin-top: 4px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; font-size: 0.72rem; font-style: normal; font-weight: 400; font-family: 'Segoe UI', system-ui, sans-serif; color: var(--text); white-space: nowrap; box-shadow: var(--shadow-md); z-index: 10; min-width: 180px; }
-  .image-info .info-tooltip b { color: var(--muted); font-weight: 600; }
-  .image-info:hover .info-tooltip { display: block; }
+  .info-modal-body { background: var(--surface); border-radius: var(--radius); padding: 24px; max-width: 600px; width: 90vw; position: relative; box-shadow: 0 20px 60px rgba(0,0,0,0.3); }
+  .info-modal-body h3 { margin-bottom: 14px; font-size: 1rem; color: var(--text); }
+  .info-modal-body .info-row { margin-bottom: 10px; font-size: 0.85rem; line-height: 1.5; }
+  .info-modal-body .info-row b { color: var(--muted); font-weight: 600; display: inline-block; min-width: 70px; }
+  .info-modal-body .info-prompt { white-space: pre-wrap; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; font-size: 0.82rem; max-height: 200px; overflow-y: auto; margin-top: 4px; font-family: monospace; line-height: 1.5; }
 
   /* Modal */
   .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6); backdrop-filter: blur(4px); z-index: 1000; justify-content: center; align-items: center; padding: 20px; }
@@ -137,7 +139,7 @@
   <label>From:</label><input type="date" id="filterFrom" />
   <label>To:</label><input type="date" id="filterTo" />
   <button class="btn-outline btn-sm" onclick="resetDates()">Reset</button>
-  <input type="text" id="filterText" placeholder="Search for items, furniture, etc…" oninput="applyTextFilter()" />
+  <input type="text" id="filterText" placeholder="Search for items, furniture, etc…" />
   <input type="number" id="filterZip" placeholder="Near zip" maxlength="5" style="width:90px" />
 </div>
 
@@ -160,6 +162,15 @@
     <button class="modal-close" onclick="closeModal()">&times;</button>
     <img id="modalImg" />
     <div class="modal-analysis" id="modalAnalysis"></div>
+  </div>
+</div>
+
+<!-- Info modal -->
+<div class="modal-overlay" id="infoModal" onclick="if(event.target===this)closeInfoModal()">
+  <div class="info-modal-body">
+    <button class="modal-close" onclick="closeInfoModal()">&times;</button>
+    <h3>Analysis Details</h3>
+    <div id="infoModalContent"></div>
   </div>
 </div>
 

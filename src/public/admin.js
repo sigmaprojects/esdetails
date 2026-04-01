@@ -2,6 +2,7 @@
 let listings = [];
 let settings = {};
 let zipcodes = [];
+let aiConfigs = [];
 let scanning = false;
 let sortCol = null;
 let sortDir = 1;
@@ -10,7 +11,7 @@ const listingsArea = document.getElementById('listingsArea');
 
 /* ── Init ──────────────────────────────────────────────────────────────── */
 (async () => {
-  await Promise.all([loadZipcodes(), loadSettings(), loadListings(), checkScanStatus()]);
+  await Promise.all([loadZipcodes(), loadSettings(), loadAiConfigs(), loadListings(), checkScanStatus()]);
   connectSSE();
 })();
 
@@ -72,15 +73,12 @@ async function removeZipcode(id) {
 
 document.getElementById('zipInput').addEventListener('keydown', e => { if (e.key === 'Enter') addZipcode(); });
 
-/* ── Settings ──────────────────────────────────────────────────────────── */
-const SETTING_KEYS = [
-  'ollama_url', 'ollama_model', 'api_type', 'api_key',
-  'image_domain', 'max_images', 'image_scale', 'ai_concurrency', 'ai_timeout_seconds', 'scan_time', 'ai_prompt'
-];
+/* ── Settings (site-only) ──────────────────────────────────────────────── */
+const SITE_SETTING_KEYS = ['image_domain', 'max_images', 'scan_time'];
 
 async function loadSettings() {
   settings = await api('/api/settings');
-  for (const key of SETTING_KEYS) {
+  for (const key of SITE_SETTING_KEYS) {
     const el = document.getElementById('s_' + key);
     if (el) el.value = settings[key] || '';
   }
@@ -88,12 +86,108 @@ async function loadSettings() {
 
 async function saveSettings() {
   const body = {};
-  for (const key of SETTING_KEYS) {
+  for (const key of SITE_SETTING_KEYS) {
     const el = document.getElementById('s_' + key);
     if (el) body[key] = el.value;
   }
   await api('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-  settings = body;
+  settings = { ...settings, ...body };
+}
+
+/* ── AI Configs CRUD ──────────────────────────────────────────────────── */
+async function loadAiConfigs() {
+  aiConfigs = await api('/api/ai-configs');
+  renderAiConfigs();
+}
+
+function renderAiConfigs() {
+  const el = document.getElementById('aiConfigsList');
+  if (!aiConfigs.length) {
+    el.innerHTML = '<p style="color:var(--muted);font-size:0.85rem;">No AI configurations yet.</p>';
+    return;
+  }
+  el.innerHTML = `<table class="ai-config-table"><thead><tr>
+    <th>Weight</th><th>Name</th><th>Type</th><th>Model</th><th>Concurrency</th><th>Retries</th><th></th>
+  </tr></thead><tbody>${aiConfigs.map(c => `
+    <tr class="${c.weight === 0 ? 'cfg-disabled' : ''}">
+      <td class="cfg-weight">${c.weight}</td>
+      <td class="cfg-name">${esc(c.name || '—')}</td>
+      <td>${esc(c.api_type)}</td>
+      <td>${esc(c.api_model)}</td>
+      <td>${c.ai_concurrency}</td>
+      <td>${c.retry_count}</td>
+      <td class="cfg-actions">
+        <button class="btn-sm btn-outline" onclick="editConfig(${c.id})">Edit</button>
+        <button class="btn-sm btn-outline" style="color:var(--red);border-color:var(--red)" onclick="deleteConfig(${c.id})">×</button>
+      </td>
+    </tr>`).join('')}</tbody></table>`;
+}
+
+function showAddConfigForm() {
+  document.getElementById('cfg_id').value = '';
+  document.getElementById('cfg_name').value = '';
+  document.getElementById('cfg_api_url').value = '';
+  document.getElementById('cfg_api_model').value = '';
+  document.getElementById('cfg_api_type').value = 'native';
+  document.getElementById('cfg_api_key').value = '';
+  document.getElementById('cfg_image_scale').value = '0.5';
+  document.getElementById('cfg_ai_concurrency').value = '1';
+  document.getElementById('cfg_ai_timeout_seconds').value = '300';
+  document.getElementById('cfg_retry_count').value = '2';
+  document.getElementById('cfg_weight').value = '10';
+  document.getElementById('cfg_ai_prompt').value = "List every item in this image. For each item, provide only the name and the material/color.\nRules:\nDo NOT mention brands, models, or 'generic' unless you are extremely confident in the brand or model.\nDo NOT mention characters unless you are extremely confident what character is portrayed.\nDo NOT describe condition.\nFormat: [Brand (if any)] [Model (if any)] [Character (if any)] [Item Name]: [Material/Color]\nDo NOT include the brackets [] if there is no brand or model or character or unknown material/color, do NOT include empty brackets in the format.\nBe extremely brief. Use one line per item.";
+  document.getElementById('aiConfigForm').style.display = '';
+}
+
+function editConfig(id) {
+  const c = aiConfigs.find(x => x.id === id);
+  if (!c) return;
+  document.getElementById('cfg_id').value = c.id;
+  document.getElementById('cfg_name').value = c.name || '';
+  document.getElementById('cfg_api_url').value = c.api_url || '';
+  document.getElementById('cfg_api_model').value = c.api_model || '';
+  document.getElementById('cfg_api_type').value = c.api_type || 'native';
+  document.getElementById('cfg_api_key').value = c.api_key || '';
+  document.getElementById('cfg_image_scale').value = c.image_scale ?? 0.5;
+  document.getElementById('cfg_ai_concurrency').value = c.ai_concurrency ?? 1;
+  document.getElementById('cfg_ai_timeout_seconds').value = c.ai_timeout_seconds ?? 300;
+  document.getElementById('cfg_retry_count').value = c.retry_count ?? 2;
+  document.getElementById('cfg_weight').value = c.weight ?? 10;
+  document.getElementById('cfg_ai_prompt').value = c.ai_prompt || '';
+  document.getElementById('aiConfigForm').style.display = '';
+}
+
+function hideConfigForm() {
+  document.getElementById('aiConfigForm').style.display = 'none';
+}
+
+async function saveConfig() {
+  const id = document.getElementById('cfg_id').value;
+  const body = {
+    name: document.getElementById('cfg_name').value,
+    api_url: document.getElementById('cfg_api_url').value,
+    api_model: document.getElementById('cfg_api_model').value,
+    api_type: document.getElementById('cfg_api_type').value,
+    api_key: document.getElementById('cfg_api_key').value,
+    image_scale: document.getElementById('cfg_image_scale').value,
+    ai_concurrency: document.getElementById('cfg_ai_concurrency').value,
+    ai_timeout_seconds: document.getElementById('cfg_ai_timeout_seconds').value,
+    retry_count: document.getElementById('cfg_retry_count').value,
+    weight: document.getElementById('cfg_weight').value,
+    ai_prompt: document.getElementById('cfg_ai_prompt').value,
+  };
+  const opts = { method: id ? 'PUT' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) };
+  const url = id ? `/api/ai-configs/${id}` : '/api/ai-configs';
+  const res = await api(url, opts);
+  if (res.error) { alert(res.error); return; }
+  hideConfigForm();
+  await loadAiConfigs();
+}
+
+async function deleteConfig(id) {
+  if (!confirm('Delete this AI configuration?')) return;
+  await api(`/api/ai-configs/${id}`, { method: 'DELETE' });
+  await loadAiConfigs();
 }
 
 /* ── Listings ──────────────────────────────────────────────────────────── */
@@ -169,7 +263,7 @@ function renderListings() {
               const analysisText = img.analysis || '';
               return `
               <div class="image-card">
-                ${img.analyzed_at ? `<span class="image-info">i<span class="info-tooltip"><b>Analyzed:</b> ${esc(img.analyzed_at)}<br><b>API:</b> ${esc(img.analysis_api || '—')}<br><b>Model:</b> ${esc(img.analysis_model || '—')}<br><b>Prompt:</b> ${esc((img.analysis_prompt || '—').substring(0, 80))}${(img.analysis_prompt || '').length > 80 ? '…' : ''}</span></span>` : ''}
+                ${img.analyzed_at ? `<span class="image-info" onclick="event.stopPropagation();openInfoModal(this)" data-analyzed="${esc(img.analyzed_at)}" data-api="${esc(img.analysis_api || '—')}" data-model="${esc(img.analysis_model || '—')}" data-prompt="${esc(img.analysis_prompt || '—')}">i</span>` : ''}
                 <img src="${esc(img.local_url)}" loading="lazy" data-analysis="${esc(analysisText)}" onclick="openModal(this)" />
                 ${img.analyzed_at
                   ? `<div class="analysis">${esc(analysisText)}</div>`
@@ -293,7 +387,20 @@ function closeModal() {
   document.getElementById('modalImg').src = '';
 }
 
-document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeModal(); closeInfoModal(); } });
+
+function openInfoModal(el) {
+  const c = document.getElementById('infoModalContent');
+  c.innerHTML = `<div class="info-row"><b>Analyzed:</b> ${esc(el.dataset.analyzed)}</div>
+    <div class="info-row"><b>API:</b> ${esc(el.dataset.api)}</div>
+    <div class="info-row"><b>Model:</b> ${esc(el.dataset.model)}</div>
+    <div class="info-row"><b>Prompt:</b><div class="info-prompt">${esc(el.dataset.prompt)}</div></div>`;
+  document.getElementById('infoModal').classList.add('open');
+}
+
+function closeInfoModal() {
+  document.getElementById('infoModal').classList.remove('open');
+}
 
 /* ── SSE ───────────────────────────────────────────────────────────────── */
 let _listingReloadTimer = null;
