@@ -12,6 +12,7 @@ services:
       - NODE_ENV=production
       - PORT=3253
       - DATA_DIR=/data
+      - TZ=${TZ:-America/Los_Angeles}
       # Default Ollama URL — points to the Docker host so the container can reach
       # an Ollama instance running on the host machine.
       # Change to a real hostname/IP if Ollama runs elsewhere.

@@ -149,36 +149,34 @@ export function isAiRunning() { return _aiRunning && !_aiStopped; }
 
 // ── Scheduler ──────────────────────────────────────────────────────────────
 
-function msUntilNext(timeStr) {
-  const [h, m] = timeStr.split(':').map(Number);
-  const now = new Date();
-  const target = new Date(now);
-  target.setHours(h, m, 0, 0);
-  if (target <= now) target.setDate(target.getDate() + 1);
-  return target - now;
-}
+let _lastFiredDate = null; // tracks the date string (YYYY-MM-DD) we last fired on
 
 export function startScheduler(scanTime, broadcast) {
   stopScheduler();
-  const schedule = () => {
-    // Re-read scan time from DB each cycle in case it changed
-    const currentTime = db.getSetting('scan_time') || scanTime;
-    const ms = msUntilNext(currentTime);
-    const nextDate = new Date(Date.now() + ms);
-    console.log(`[Scheduler] Next scan at ${currentTime} (in ${Math.round(ms / 60000)} min — ${nextDate.toLocaleString()})`);
-    intervalTimer = setTimeout(async () => {
-      console.log(`[Scheduler] Daily scan triggered at ${new Date().toLocaleString()}`);
+  _lastFiredDate = null;
+
+  const scanTimeFromDb = () => db.getSetting('scan_time') || scanTime;
+
+  console.log(`[Scheduler] Polling every 60s for scan_time=${scanTimeFromDb()}`);
+
+  // Check every 60 seconds whether it's time to scan
+  intervalTimer = setInterval(async () => {
+    const targetTime = scanTimeFromDb();
+    const now = new Date();
+    const hhmm = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+    const today = now.toISOString().slice(0, 10);
+
+    if (hhmm === targetTime && _lastFiredDate !== today) {
+      _lastFiredDate = today;
+      console.log(`[Scheduler] Daily scan triggered at ${now.toLocaleString()}`);
       try {
         await runFullScan(broadcast);
-        // After scheduled scan completes, auto-resume AI analysis
         resumeAiAnalysis(broadcast);
       } catch (err) {
         console.error('[Scheduler] Scan error:', err);
       }
-      schedule();
-    }, ms);
-  };
-  schedule();
+    }
+  }, 60_000);
 
   // On startup, scan if never scanned or last scan was >24h ago
   const last = db.getSetting('last_scan_at');
@@ -188,7 +186,7 @@ export function startScheduler(scanTime, broadcast) {
 }
 
 export function stopScheduler() {
-  if (intervalTimer) clearTimeout(intervalTimer);
+  if (intervalTimer) clearInterval(intervalTimer);
   intervalTimer = null;
 }
 
