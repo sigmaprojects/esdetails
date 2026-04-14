@@ -169,6 +169,7 @@ const DEFAULTS = {
   image_domain: 'picturescdn.estatesales.net',
   max_images: '100000',
   ignore_words: 'auction, online, warehouse, offsite, off-site, liquidation',
+  sale_types: 'EstateSales, MovingSales, MovedOffsiteToWarehouse',
   last_scan_at: '',
 };
 

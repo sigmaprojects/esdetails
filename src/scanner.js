@@ -249,12 +249,19 @@ export async function runFullScan(broadcast) {
       let scraped;
       const imageDownloadPromises = [];
       try {
+        const allowedSaleTypes = (settings.sale_types || '').split(',').map(s => s.trim()).filter(Boolean);
         scraped = await scrapeListings(staleUrls, (d) => {
           if (d.message) broadcast({ type: 'scan_progress', message: d.message });
 
           // Save listing to DB as soon as it's scraped (don't wait for image download/AI)
           if (d.type === 'listing_scraped' && d.listing && !d.listing.error) {
             const listing = d.listing;
+
+            // Skip listings filtered by sale type
+            if (listing.filteredType) {
+              broadcast({ type: 'scan_progress', message: `  ⏭ Skipped "${listing.title}" (sale type: "${listing.filteredType}")` });
+              return;
+            }
 
             // Check ignore words — skip listing entirely if title matches
             const ignoreWords = (settings.ignore_words || '').split(',').map(w => w.trim().toLowerCase()).filter(Boolean);
@@ -284,7 +291,7 @@ export async function runFullScan(broadcast) {
               .catch(err => console.error(`[Scanner] Image pipeline error for ${listing.url}: ${err.message}`));
             imageDownloadPromises.push(downloadPromise);
           }
-        }, { zipcode });
+        }, { zipcode, allowedSaleTypes });
       } catch (err) {
         broadcast({ type: 'scan_progress', message: `Scraping error for ${zipcode}: ${err.message}` });
         continue;

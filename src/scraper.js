@@ -14,10 +14,10 @@ function extractSaleId(url) {
 }
 
 /**
- * Fetch all gallery image URLs for a listing via the estatesales.net API.
- * Returns full-size (1-1) image URLs from sale.pictures[].url
+ * Fetch sale data from the estatesales.net API.
+ * Returns { images: string[], typeName: string }
  */
-async function fetchImagesFromApi(saleId) {
+async function fetchSaleData(saleId) {
   const query = JSON.stringify({ saleId: parseInt(saleId, 10), userId: null, isSuper: false });
   const apiUrl = `https://www.estatesales.net/api/legacy/queries/traditional-sales/traditional-sale?query=${encodeURIComponent(query)}&explicitTypes=DateTime`;
 
@@ -32,17 +32,17 @@ async function fetchImagesFromApi(saleId) {
   const sale = resp.data?.sale;
   if (!sale) {
     console.warn(`[Scraper] API response missing 'sale' key for saleId ${saleId}`);
-    return [];
+    return { images: [], typeName: '' };
   }
 
+  const typeName = sale.typeName || '';
   const pictures = sale.pictures || [];
-  // Use the full-size url (1-1 pattern) from each picture object
-  const imageUrls = pictures
+  const images = pictures
     .map(p => p.url)
     .filter(u => u && typeof u === 'string');
 
-  console.log(`[Scraper] API returned ${imageUrls.length} images for saleId ${saleId}`);
-  return imageUrls;
+  console.log(`[Scraper] API returned ${images.length} images for saleId ${saleId} (type: ${typeName})`);
+  return { images, typeName };
 }
 
 /**
@@ -251,7 +251,7 @@ async function configureSearchForm(page, distance, progressCallback) {
  * Scrape each listing URL for title, dates, address, and images.
  * Returns an array of listing objects.
  */
-export async function scrapeListings(listingUrls, progressCallback, { zipcode } = {}) {
+export async function scrapeListings(listingUrls, progressCallback, { zipcode, allowedSaleTypes } = {}) {
   const browser = await chromium.launch({
     headless: true,
     args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
@@ -272,12 +272,12 @@ export async function scrapeListings(listingUrls, progressCallback, { zipcode } 
       });
 
       try {
-        const listing = await scrapeListing(browser, url);
+        const listing = await scrapeListing(browser, url, allowedSaleTypes);
         results.push(listing);
         progressCallback?.({
           type: 'listing_scraped',
           listing,
-          message: `${zipLabel}Scraped: ${listing.title || shortUrl} (${listing.images.length} images)`,
+          message: `${zipLabel}Scraped: ${listing.title || shortUrl} (${listing.images.length} images${listing.filteredType ? `, filtered: ${listing.filteredType}` : ''})`,
         });
       } catch (err) {
         const errorListing = {
@@ -305,7 +305,7 @@ export async function scrapeListings(listingUrls, progressCallback, { zipcode } 
   return results;
 }
 
-async function scrapeListing(browser, url) {
+async function scrapeListing(browser, url, allowedSaleTypes) {
   const page = await browser.newPage();
 
   try {
@@ -384,13 +384,25 @@ async function scrapeListing(browser, url) {
         .catch(() => '');
     }
 
-    // --- Fetch images from API ---
+    // --- Fetch sale data from API ---
     const saleId = extractSaleId(url);
     let images = [];
+    let typeName = '';
     if (saleId) {
-      images = await fetchImagesFromApi(saleId);
+      const saleData = await fetchSaleData(saleId);
+      images = saleData.images;
+      typeName = saleData.typeName;
     } else {
       console.warn(`[Scraper] Could not extract sale ID from URL: ${url}`);
+    }
+
+    // Check if this sale type is allowed
+    if (allowedSaleTypes && allowedSaleTypes.length > 0 && typeName) {
+      const allowed = allowedSaleTypes.some(t => t.toLowerCase() === typeName.toLowerCase());
+      if (!allowed) {
+        console.log(`[Scraper] Filtered out: ${url} — type "${typeName}" not in allowed list`);
+        return { url, title, dates, address, images: [], filteredType: typeName };
+      }
     }
 
     const result = { url, title, dates, address, images };

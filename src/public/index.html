@@ -129,6 +129,9 @@
   .modal-overlay.open { display: flex; }
   .modal-content { max-width: 90vw; max-height: 90vh; position: relative; display: flex; flex-direction: column; align-items: center; overflow: hidden; border-radius: var(--radius); box-shadow: 0 20px 60px rgba(0,0,0,0.3); }
   .modal-content img { max-width: 90vw; max-height: 70vh; object-fit: contain; border-radius: var(--radius) var(--radius) 0 0; }
+  .modal-nav { position: absolute; top: 0; width: 15%; height: calc(100% - 3em); cursor: pointer; z-index: 2; }
+  .modal-nav-left { left: 0; }
+  .modal-nav-right { right: 0; }
   .modal-close { position: absolute; top: 8px; right: 8px; background: rgba(0,0,0,0.5); border: none; color: #fff; font-size: 1.2rem; cursor: pointer; z-index: 1; width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; transition: background 0.15s; }
   .modal-close:hover { background: rgba(0,0,0,0.7); transform: none; }
   .modal-analysis { width: 100%; background: var(--surface); padding: 14px 18px; font-size: 0.85rem; color: var(--text); max-height: 20vh; overflow-y: auto; white-space: pre-wrap; border-radius: 0 0 var(--radius) var(--radius); line-height: 1.6; }
@@ -174,6 +177,8 @@
 <div class="modal-overlay" id="modal" onclick="if(event.target===this)closeModal()">
   <div class="modal-content">
     <button class="modal-close" onclick="closeModal()">&times;</button>
+    <div class="modal-nav modal-nav-left" onclick="modalNav(-1)"></div>
+    <div class="modal-nav modal-nav-right" onclick="modalNav(1)"></div>
     <img id="modalImg" />
     <div class="modal-analysis" id="modalAnalysis"></div>
   </div>

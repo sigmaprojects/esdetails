@@ -217,19 +217,55 @@ function formatDates(raw, startISO, endISO) {
   return raw || '';
 }
 
-/* ── SSE ───────────────────────────────────────────────────────────────── */
+/* ── Modal ─────────────────────────────────────────────────────────────── */
+let _modalImages = [];
+let _modalIdx = -1;
+
+function getVisibleImages(imgEl) {
+  const grid = imgEl.closest('.image-grid');
+  if (!grid) return [];
+  const showAll = grid.classList.contains('show-all');
+  return [...grid.querySelectorAll('.image-card img[data-analysis]')].filter(img => {
+    if (showAll) return true;
+    return !img.closest('.image-card').classList.contains('filtered-out');
+  });
+}
+
 function openModal(imgEl) {
-  document.getElementById('modalImg').src = imgEl.src;
-  document.getElementById('modalAnalysis').textContent = imgEl.dataset.analysis || '';
+  _modalImages = getVisibleImages(imgEl);
+  _modalIdx = _modalImages.indexOf(imgEl);
+  if (_modalIdx === -1) _modalIdx = 0;
+  showModalImage();
   document.getElementById('modal').classList.add('open');
+}
+
+function showModalImage() {
+  if (!_modalImages.length) return;
+  const img = _modalImages[_modalIdx];
+  document.getElementById('modalImg').src = img.src;
+  document.getElementById('modalAnalysis').textContent = img.dataset.analysis || '';
+}
+
+function modalNav(dir) {
+  if (!_modalImages.length) return;
+  _modalIdx = (_modalIdx + dir + _modalImages.length) % _modalImages.length;
+  showModalImage();
 }
 
 function closeModal() {
   document.getElementById('modal').classList.remove('open');
   document.getElementById('modalImg').src = '';
+  _modalImages = [];
+  _modalIdx = -1;
 }
 
-document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeModal(); closeInfoModal(); } });
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') { closeModal(); closeInfoModal(); }
+  if (document.getElementById('modal').classList.contains('open')) {
+    if (e.key === 'ArrowLeft') { e.preventDefault(); modalNav(-1); }
+    if (e.key === 'ArrowRight') { e.preventDefault(); modalNav(1); }
+  }
+});
 
 function openInfoModal(el) {
   const c = document.getElementById('infoModalContent');
