@@ -5,6 +5,9 @@ let sortDir = 1;      // 1 = asc, -1 = desc
 let zipDistances = {};  // { zip: miles } cached from backend
 let zipDistancesFor = ''; // the ref zip they were fetched for
 let hiddenUrls = JSON.parse(localStorage.getItem('hiddenListings') || '{}'); // { url: title }
+let _hashListingId = null; // listing id to expand from hash
+let _hashImgIdx = null;    // image index to open from hash
+let _suppressHashPush = false;
 
 const filterFrom = document.getElementById('filterFrom');
 const filterTo   = document.getElementById('filterTo');
@@ -16,14 +19,67 @@ filterText.addEventListener('keyup', () => {
   _filterTimer = setTimeout(() => applyTextFilter(), 500);
 });
 
+/* ── Hash State ────────────────────────────────────────────────────────── */
+function pushHash() {
+  if (_suppressHashPush) return;
+  const p = new URLSearchParams();
+  if (filterFrom.value) p.set('from', filterFrom.value);
+  if (filterTo.value) p.set('to', filterTo.value);
+  if (filterText.value.trim()) p.set('q', filterText.value.trim());
+  const zipEl = document.getElementById('filterZip');
+  if (zipEl && zipEl.value.trim()) p.set('zip', zipEl.value.trim());
+  if (sortCol) { p.set('sort', sortCol); p.set('dir', String(sortDir)); }
+  // Find open listing
+  const openBody = listingsArea.querySelector('.listing-body.open');
+  if (openBody) {
+    const card = openBody.closest('.listing-card');
+    if (card) p.set('listing', card.dataset.url);
+  }
+  // Find open modal image
+  if (document.getElementById('modal').classList.contains('open') && _modalImages.length && _modalIdx >= 0) {
+    const imgEl = _modalImages[_modalIdx];
+    const idx = imgEl ? imgEl.dataset.imgIdx : null;
+    if (idx != null) p.set('img', idx);
+  }
+  const hash = p.toString();
+  if (location.hash.slice(1) !== hash) history.replaceState(null, '', '#' + hash);
+}
+
+function readHash() {
+  const p = new URLSearchParams(location.hash.slice(1));
+  return {
+    from: p.get('from') || '',
+    to: p.get('to') || '',
+    q: p.get('q') || '',
+    zip: p.get('zip') || '',
+    sort: p.get('sort') || '',
+    dir: parseInt(p.get('dir'), 10) || 1,
+    listing: p.get('listing') || '',
+    img: p.get('img'),
+  };
+}
+
 /* ── Init ──────────────────────────────────────────────────────────────── */
 (async () => {
-  // Set default date filter to today
-  filterFrom.value = new Date().toISOString().split('T')[0];
-  filterFrom.addEventListener('change', loadListings);
-  filterTo.addEventListener('change', loadListings);
+  const h = readHash();
+  _suppressHashPush = true;
+
+  // Restore filter state from hash (or defaults)
+  filterFrom.value = h.from || new Date().toISOString().split('T')[0];
+  filterTo.value = h.to || '';
+  filterText.value = h.q || '';
+  const zipEl = document.getElementById('filterZip');
+  if (zipEl && h.zip) zipEl.value = h.zip;
+  if (h.sort) { sortCol = h.sort; sortDir = h.dir; }
+  if (h.listing) _hashListingId = h.listing;
+  if (h.img != null) _hashImgIdx = parseInt(h.img, 10);
+
+  filterFrom.addEventListener('change', () => { loadListings(); });
+  filterTo.addEventListener('change', () => { loadListings(); });
 
   await loadListings();
+  _suppressHashPush = false;
+  pushHash();
   connectSSE();
 })();
 
@@ -40,6 +96,8 @@ async function loadListings() {
   if (filterTo.value) params.set('to', filterTo.value);
   listings = await api('/api/listings?' + params);
   renderListings();
+  restoreFromHash();
+  pushHash();
 }
 
 function highlightText(str, term) {
@@ -106,7 +164,7 @@ function renderListings() {
   listingsArea.innerHTML = filtered.map(l => {
     const imgCount = l.images.length;
     const analyzedCount = l.images.filter(i => i.analyzed_at).length;
-    const isOpen = hasFilter || openUrls.has(l.url);
+    const isOpen = hasFilter || openUrls.has(l.url) || _hashListingId === l.url;
     return `
       <div class="listing-card" data-url="${esc(l.url)}">
         <div class="listing-header" onclick="toggleListing(this)">
@@ -131,14 +189,14 @@ function renderListings() {
             ${hasFilter ? `<button class="btn-sm show-all-btn" onclick="toggleShowAll(this)">Only showing images matching &quot;${esc(text)}&quot; — click to show all</button>` : ''}
           </div>
           <div class="image-grid">
-            ${l.images.map(img => {
+            ${l.images.map((img, imgIdx) => {
               const analysisText = img.analysis || '';
               const isMatch = hasFilter && analysisText.toLowerCase().includes(text);
               const hidden = hasFilter && !isMatch;
               return `
               <div class="image-card${isMatch ? ' match' : ''}${hidden ? ' filtered-out' : ''}">
                 ${img.analyzed_at ? `<span class="image-info" onclick="event.stopPropagation();openInfoModal(this)" data-analyzed="${esc(img.analyzed_at)}" data-api="${esc(img.analysis_api || '—')}" data-model="${esc(img.analysis_model || '—')}" data-prompt="${esc(img.analysis_prompt || '—')}" data-url="${esc(img.analysis_url || '')}" data-config="${esc(img.analysis_config_name || '')}">i</span>` : ''}
-                <img src="${esc(img.local_url)}" loading="lazy" data-analysis="${esc(analysisText)}" onclick="openModal(this)" />
+                <img src="${esc(img.local_url)}" loading="lazy" data-analysis="${esc(analysisText)}" data-img-idx="${imgIdx}" onclick="openModal(this)" />
                 ${img.analyzed_at
                   ? `<div class="analysis">${highlightText(analysisText, text)}</div>`
                   : `<div class="pending">Pending analysis…</div>`}
@@ -154,11 +212,17 @@ function renderListings() {
 
 function toggleListing(headerEl) {
   const body = headerEl.nextElementSibling;
+  // Close all other listing bodies first
+  listingsArea.querySelectorAll('.listing-body.open').forEach(el => {
+    if (el !== body) el.classList.remove('open');
+  });
   body.classList.toggle('open');
+  pushHash();
 }
 
 function applyTextFilter() {
   renderListings();
+  pushHash();
 }
 
 function toggleShowAll(btn) {
@@ -188,6 +252,7 @@ async function toggleSort(col) {
     }
   }
   renderListings();
+  pushHash();
 }
 
 function extractZip(address) {
@@ -200,6 +265,27 @@ function resetDates() {
   filterFrom.value = new Date().toISOString().split('T')[0];
   filterTo.value = '';
   loadListings();
+}
+
+/* ── Deep-link restore (after render) ──────────────────────────────────── */
+function restoreFromHash() {
+  if (_hashListingId) {
+    const card = listingsArea.querySelector(`.listing-card[data-url="${CSS.escape(_hashListingId)}"]`);
+    if (card) {
+      const body = card.querySelector('.listing-body');
+      if (body && !body.classList.contains('open')) body.classList.add('open');
+      card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+      if (_hashImgIdx != null) {
+        const img = card.querySelector(`img[data-img-idx="${_hashImgIdx}"]`);
+        if (img) {
+          setTimeout(() => openModal(img), 300);
+        }
+      }
+    }
+    _hashListingId = null;
+    _hashImgIdx = null;
+  }
 }
 
 /* ── Date formatting ───────────────────────────────────────────────────── */
@@ -237,6 +323,7 @@ function openModal(imgEl) {
   if (_modalIdx === -1) _modalIdx = 0;
   showModalImage();
   document.getElementById('modal').classList.add('open');
+  pushHash();
 }
 
 function showModalImage() {
@@ -250,6 +337,7 @@ function modalNav(dir) {
   if (!_modalImages.length) return;
   _modalIdx = (_modalIdx + dir + _modalImages.length) % _modalImages.length;
   showModalImage();
+  pushHash();
 }
 
 function closeModal() {
@@ -257,6 +345,7 @@ function closeModal() {
   document.getElementById('modalImg').src = '';
   _modalImages = [];
   _modalIdx = -1;
+  pushHash();
 }
 
 document.addEventListener('keydown', e => {
