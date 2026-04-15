@@ -397,7 +397,9 @@ function showModalImage() {
 
 function modalNav(dir) {
   if (!_modalImages.length) return;
-  _modalIdx = (_modalIdx + dir + _modalImages.length) % _modalImages.length;
+  const next = _modalIdx + dir;
+  if (next < 0 || next >= _modalImages.length) { closeModal(); return; }
+  _modalIdx = next;
   showModalImage();
 }
 
